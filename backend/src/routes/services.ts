@@ -1,0 +1,130 @@
+
+import express from 'express';
+import { ServiceService } from '../services/serviceService';
+import { AuthRequest, authenticateToken } from '../middleware/auth';
+import Joi from 'joi';
+
+const router = express.Router();
+
+// Validation schemas
+const createServiceSchema = Joi.object({
+  title: Joi.string().required(),
+  durationMinutes: Joi.number().min(15).max(480).required(),
+  location: Joi.string().required(),
+  totalPrice: Joi.number().min(0).required(),
+  depositPercentage: Joi.number().min(0).max(100).required(),
+  description: Joi.string().required(),
+  currency: Joi.string().length(3).default('USD')
+});
+
+const updateServiceSchema = Joi.object({
+  title: Joi.string(),
+  durationMinutes: Joi.number().min(15).max(480),
+  location: Joi.string(),
+  totalPrice: Joi.number().min(0),
+  depositPercentage: Joi.number().min(0).max(100),
+  description: Joi.string(),
+  currency: Joi.string().length(3)
+});
+
+// Get all services for a user
+router.get('/:userId/services', authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Ensure user can only access their own services
+    if (req.userId !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const services = await ServiceService.findByUserId(userId);
+    res.json(services);
+  } catch (error) {
+    console.error('Get services error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create a new service
+router.post('/:userId/services', authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Ensure user can only create services for themselves
+    if (req.userId !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { error, value } = createServiceSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const service = await ServiceService.createService(
+      userId,
+      value.title,
+      value.durationMinutes,
+      value.location,
+      value.totalPrice,
+      value.depositPercentage,
+      value.description,
+      value.currency
+    );
+
+    res.status(201).json(service);
+  } catch (error) {
+    console.error('Create service error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update a service
+router.put('/:userId/services/:serviceId', authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const { userId, serviceId } = req.params;
+    
+    // Ensure user can only update their own services
+    if (req.userId !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { error, value } = updateServiceSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const service = await ServiceService.updateService(serviceId, userId, value);
+    if (!service) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+
+    res.json(service);
+  } catch (error) {
+    console.error('Update service error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete a service
+router.delete('/:userId/services/:serviceId', authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const { userId, serviceId } = req.params;
+    
+    // Ensure user can only delete their own services
+    if (req.userId !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const success = await ServiceService.deleteService(serviceId, userId);
+    if (!success) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+
+    res.json({ message: 'Service deleted successfully' });
+  } catch (error) {
+    console.error('Delete service error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+export default router;

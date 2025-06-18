@@ -1,0 +1,49 @@
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: settle_booking
+      POSTGRES_USER: settle_user
+      POSTGRES_PASSWORD: settle_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - settle-network
+
+  # Settle API Server
+  api:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://settle_user:settle_password@postgres:5432/settle_booking
+      JWT_SECRET: your-super-secret-jwt-key-change-this-in-production
+      JWT_EXPIRE_TIME: 7d
+      GOOGLE_CLIENT_ID: your-google-client-id
+      GOOGLE_CLIENT_SECRET: your-google-client-secret
+      GOOGLE_REDIRECT_URI: http://localhost:3001/api/auth/google/callback
+      FRONTEND_URL: http://localhost:8080
+      ENCRYPTION_KEY: your-32-character-encryption-key-here
+    depends_on:
+      - postgres
+    networks:
+      - settle-network
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+
+networks:
+  settle-network:
+    driver: bridge

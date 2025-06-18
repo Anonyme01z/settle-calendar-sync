@@ -1,0 +1,16 @@
+
+{
+  "name": "settle-calendar-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Settle booking application with Google Calendar integration",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "nodemon src/server.ts",
+    "watch": "tsc -w"
+  },
+  "keywords": ["booking", "calendar", "google-calendar", "api"],
+  "author": "Settle",
+  "license": "MIT"
+}
