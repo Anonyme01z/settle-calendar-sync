@@ -1,4 +1,3 @@
-
 import pool from '../config/database';
 import { v4 as uuidv4 } from 'uuid';
 import { Service } from '../types';
@@ -82,7 +81,7 @@ export class ServiceService {
     const query = 'UPDATE services SET is_active = false WHERE id = $1 AND user_id = $2';
     const result = await pool.query(query, [serviceId, userId]);
     
-    return result.rowCount > 0;
+    return (result.rowCount ?? 0) > 0;
   }
 
   private static mapRowToService(row: any): Service {

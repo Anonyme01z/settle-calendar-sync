@@ -1,9 +1,10 @@
-
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import swaggerUi from 'swagger-ui-express';
+import swaggerSpec from './swagger.js';
 
 // Import routes
 import authRoutes from './routes/auth';
@@ -46,6 +47,9 @@ app.use('/api/business', businessRoutes);
 app.use('/api', serviceRoutes);
 app.use('/api/calendar', calendarRoutes);
 
+// Swagger UI
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
@@ -54,7 +58,11 @@ app.use('*', (req, res) => {
 // Global error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Global error handler:', err);
-  res.status(500).json({ error: 'Internal server error' });
+  if (err instanceof Error) {
+    res.status(500).json({ error: err.message });
+  } else {
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.listen(PORT, () => {

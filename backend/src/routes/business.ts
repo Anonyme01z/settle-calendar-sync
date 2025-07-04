@@ -1,4 +1,3 @@
-
 import express from 'express';
 import { BusinessService } from '../services/businessService';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
@@ -36,7 +35,21 @@ const updateProfileSchema = Joi.object({
   })
 });
 
-// Get business profile
+/**
+ * @openapi
+ * /api/business/{userId}/profile:
+ *   get:
+ *     summary: Get business profile
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Business profile
+ */
 router.get('/:userId/profile', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { userId } = req.params;
@@ -58,7 +71,40 @@ router.get('/:userId/profile', authenticateToken, async (req: AuthRequest, res) 
   }
 });
 
-// Update business settings
+/**
+ * @openapi
+ * /api/business/{userId}/settings:
+ *   put:
+ *     summary: Update business settings
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               workingHours:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *               bufferTimeMinutes:
+ *                 type: number
+ *               minBookingNoticeHours:
+ *                 type: number
+ *               bookingWindowDays:
+ *                 type: number
+ *               timeZone:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Updated business settings
+ */
 router.put('/:userId/settings', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { userId } = req.params;

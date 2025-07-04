@@ -1,4 +1,3 @@
-
 import express from 'express';
 import { ServiceService } from '../services/serviceService';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
@@ -27,7 +26,21 @@ const updateServiceSchema = Joi.object({
   currency: Joi.string().length(3)
 });
 
-// Get all services for a user
+/**
+ * @openapi
+ * /api/{userId}/services:
+ *   get:
+ *     summary: Get all services for a user
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of services
+ */
 router.get('/:userId/services', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { userId } = req.params;
@@ -45,7 +58,42 @@ router.get('/:userId/services', authenticateToken, async (req: AuthRequest, res)
   }
 });
 
-// Create a new service
+/**
+ * @openapi
+ * /api/{userId}/services:
+ *   post:
+ *     summary: Create a new service
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *               durationMinutes:
+ *                 type: number
+ *               location:
+ *                 type: string
+ *               totalPrice:
+ *                 type: number
+ *               depositPercentage:
+ *                 type: number
+ *               description:
+ *                 type: string
+ *               currency:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Service created
+ */
 router.post('/:userId/services', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { userId } = req.params;

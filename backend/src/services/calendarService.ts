@@ -1,4 +1,3 @@
-
 import { calendar, oauth2Client } from '../config/google';
 import { UserService } from './userService';
 import { BusinessService } from './businessService';
@@ -29,7 +28,7 @@ export class CalendarService {
           userId,
           credentials.access_token,
           credentials.refresh_token || tokens.refreshToken,
-          credentials.expiry_date
+          credentials.expiry_date ?? undefined
         );
         return credentials.access_token;
       }

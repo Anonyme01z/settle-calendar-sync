@@ -1,21 +1,24 @@
-
 # Use official Node.js runtime as base image
 FROM node:18-alpine
 
 # Set working directory
 WORKDIR /app
 
+
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install dependencies (including devDependencies for build)
+RUN npm install
 
 # Copy source code
 COPY . .
 
 # Build TypeScript
 RUN npm run build
+
+# Remove devDependencies after build
+RUN npm prune --production
 
 # Expose port
 EXPOSE 3001

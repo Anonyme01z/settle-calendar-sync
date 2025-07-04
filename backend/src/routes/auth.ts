@@ -1,4 +1,3 @@
-
 import express from 'express';
 import { UserService } from '../services/userService';
 import { BusinessService } from '../services/businessService';
@@ -22,7 +21,30 @@ const loginSchema = Joi.object({
   password: Joi.string().required()
 });
 
-// Register
+/**
+ * @openapi
+ * /api/auth/register:
+ *   post:
+ *     summary: Register a new user
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               businessName:
+ *                 type: string
+ *               businessHandle:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: User registered successfully
+ */
 router.post('/register', async (req, res) => {
   try {
     const { error, value } = registerSchema.validate(req.body);
@@ -91,7 +113,26 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// Login
+/**
+ * @openapi
+ * /api/auth/login:
+ *   post:
+ *     summary: Login a user
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Login successful
+ */
 router.post('/login', async (req, res) => {
   try {
     const { error, value } = loginSchema.validate(req.body);
@@ -147,7 +188,7 @@ router.get('/google/connect', authenticateToken, async (req: AuthRequest, res) =
     res.json({ authUrl });
   } catch (error) {
     console.error('Google OAuth initiate error:', error);
-    res.status(500).json({ error: 'Failed to initiate Google OAuth' });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -163,18 +204,20 @@ router.get('/google/callback', async (req, res) => {
     const userId = state as string;
 
     // Exchange code for tokens
-    const { tokens } = await oauth2Client.getAccessToken(code as string);
+    const { tokens } = await oauth2Client.getToken(code as string);
     
-    if (!tokens.access_token) {
+    if (!tokens?.access_token) {
       return res.status(400).json({ error: 'Failed to get access token' });
     }
 
     // Store tokens
+    // The problem: tokens.refresh_token can be null, but updateGoogleTokens expects string | undefined, not null.
+    // Solution: Pass undefined if refresh_token is null.
     await UserService.updateGoogleTokens(
       userId,
       tokens.access_token,
-      tokens.refresh_token,
-      tokens.expiry_date
+      tokens.refresh_token ?? undefined,
+      tokens.expiry_date ?? undefined
     );
 
     // Update business profile to mark calendar as connected

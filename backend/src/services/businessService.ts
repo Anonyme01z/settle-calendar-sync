@@ -1,4 +1,3 @@
-
 import pool from '../config/database';
 import { v4 as uuidv4 } from 'uuid';
 import { BusinessProfile, BusinessSettings, SocialLinks } from '../types';
@@ -111,8 +110,8 @@ export class BusinessService {
       reviewCount: row.review_count,
       phone: row.phone,
       address: row.address,
-      settings: JSON.parse(row.settings),
-      socialLinks: JSON.parse(row.social_links || '{}'),
+      settings: typeof row.settings === 'string' ? JSON.parse(row.settings) : row.settings,
+      socialLinks: typeof row.social_links === 'string' ? JSON.parse(row.social_links) : row.social_links || {},
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };

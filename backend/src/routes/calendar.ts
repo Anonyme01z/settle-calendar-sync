@@ -1,4 +1,3 @@
-
 import express from 'express';
 import { CalendarService } from '../services/calendarService';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
@@ -14,7 +13,31 @@ const bookingSchema = Joi.object({
   customerEmail: Joi.string().email().allow('')
 });
 
-// Get available slots for a specific date and service
+/**
+ * @openapi
+ * /api/calendar/{userId}/availability:
+ *   get:
+ *     summary: Get available slots for a specific date and service
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: date
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: serviceId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of available slots
+ */
 router.get('/:userId/availability', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { userId } = req.params;
@@ -38,20 +61,48 @@ router.get('/:userId/availability', authenticateToken, async (req: AuthRequest, 
     res.json(availableSlots);
   } catch (error) {
     console.error('Get availability error:', error);
-    
-    if (error.message.includes('not found')) {
-      return res.status(404).json({ error: error.message });
+    if (error instanceof Error) {
+      if (error.message.includes('not found')) {
+        return res.status(404).json({ error: error.message });
+      }
+      if (error.message.includes('tokens')) {
+        return res.status(401).json({ error: 'Google Calendar not connected' });
+      }
     }
-    
-    if (error.message.includes('tokens')) {
-      return res.status(401).json({ error: 'Google Calendar not connected' });
-    }
-    
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Create a booking
+/**
+ * @openapi
+ * /api/calendar/{userId}/book:
+ *   post:
+ *     summary: Create a booking
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               serviceId:
+ *                 type: string
+ *               slotStartTime:
+ *                 type: string
+ *               customerName:
+ *                 type: string
+ *               customerEmail:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Booking created successfully
+ */
 router.post('/:userId/book', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { userId } = req.params;
@@ -79,19 +130,17 @@ router.post('/:userId/book', authenticateToken, async (req: AuthRequest, res) =>
     });
   } catch (error) {
     console.error('Create booking error:', error);
-    
-    if (error.message.includes('not found')) {
-      return res.status(404).json({ error: error.message });
+    if (error instanceof Error) {
+      if (error.message.includes('not found')) {
+        return res.status(404).json({ error: error.message });
+      }
+      if (error.message.includes('no longer available')) {
+        return res.status(409).json({ error: error.message });
+      }
+      if (error.message.includes('tokens')) {
+        return res.status(401).json({ error: 'Google Calendar not connected' });
+      }
     }
-    
-    if (error.message.includes('no longer available')) {
-      return res.status(409).json({ error: error.message });
-    }
-    
-    if (error.message.includes('tokens')) {
-      return res.status(401).json({ error: 'Google Calendar not connected' });
-    }
-    
     res.status(500).json({ error: 'Internal server error' });
   }
 });
