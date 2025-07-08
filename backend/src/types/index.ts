@@ -1,4 +1,3 @@
-
 export interface User {
   id: string;
   email: string;
@@ -62,6 +61,11 @@ export interface Service {
   description: string;
   currency: string;
   isActive: boolean;
+  bookingType: 'fixed' | 'flexible' | 'quote';
+  pricing?: { rate: number; per: string | null };
+  estimatedDuration?: number;
+  requiresApproval?: boolean;
+  customerNotesEnabled?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

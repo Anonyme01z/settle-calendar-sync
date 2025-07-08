@@ -8,12 +8,30 @@ const router = express.Router();
 // Validation schemas
 const createServiceSchema = Joi.object({
   title: Joi.string().required(),
-  durationMinutes: Joi.number().min(15).max(480).required(),
+  durationMinutes: Joi.number().min(15).max(480),
   location: Joi.string().required(),
-  totalPrice: Joi.number().min(0).required(),
-  depositPercentage: Joi.number().min(0).max(100).required(),
+  totalPrice: Joi.number().min(0),
+  depositPercentage: Joi.number().min(0).max(100),
   description: Joi.string().required(),
-  currency: Joi.string().length(3).default('USD')
+  currency: Joi.string().length(3).default('USD'),
+  bookingType: Joi.string().valid('fixed', 'flexible', 'quote').required(),
+  pricing: Joi.object({
+    rate: Joi.number().min(0).required(),
+    per: Joi.string().allow(null)
+  }).when('bookingType', { is: Joi.valid('flexible'), then: Joi.required(), otherwise: Joi.optional() }),
+  estimatedDuration: Joi.number().min(1).when('bookingType', { is: Joi.valid('flexible', 'quote'), then: Joi.optional() }),
+  requiresApproval: Joi.boolean().default(true).when('bookingType', { is: Joi.valid('flexible', 'quote'), then: Joi.optional(), otherwise: Joi.default(false) }),
+  customerNotesEnabled: Joi.boolean().optional()
+}).custom((value, helpers) => {
+  if (value.bookingType === 'fixed') {
+    if (value.durationMinutes == null) return helpers.error('any.required', { key: 'durationMinutes' });
+    if (value.totalPrice == null) return helpers.error('any.required', { key: 'totalPrice' });
+    if (value.depositPercentage == null) return helpers.error('any.required', { key: 'depositPercentage' });
+  }
+  if (value.bookingType === 'flexible') {
+    if (!value.pricing) return helpers.error('any.required', { key: 'pricing' });
+  }
+  return value;
 });
 
 const updateServiceSchema = Joi.object({
@@ -116,7 +134,12 @@ router.post('/:userId/services', authenticateToken, async (req: AuthRequest, res
       value.totalPrice,
       value.depositPercentage,
       value.description,
-      value.currency
+      value.currency,
+      value.bookingType,
+      value.pricing,
+      value.estimatedDuration,
+      value.requiresApproval,
+      value.customerNotesEnabled
     );
 
     res.status(201).json(service);

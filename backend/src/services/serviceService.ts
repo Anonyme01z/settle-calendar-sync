@@ -5,26 +5,46 @@ import { Service } from '../types';
 export class ServiceService {
   static async createService(
     userId: string,
-    title: string,
-    durationMinutes: number,
-    location: string,
-    totalPrice: number,
-    depositPercentage: number,
-    description: string,
-    currency: string = 'USD'
+    data: {
+      title: string;
+      durationMinutes?: number;
+      location: string;
+      totalPrice?: number;
+      depositPercentage?: number;
+      description: string;
+      currency: string;
+      bookingType: 'fixed' | 'flexible' | 'quote';
+      pricing?: { rate: number; per: string | null };
+      estimatedDuration?: number;
+      requiresApproval?: boolean;
+      customerNotesEnabled?: boolean;
+    }
   ): Promise<Service> {
     const id = uuidv4();
-    
     const query = `
-      INSERT INTO services (id, user_id, title, duration_minutes, location, total_price, deposit_percentage, description, currency, is_active, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, NOW(), NOW())
+      INSERT INTO services (
+        id, user_id, title, duration_minutes, location, total_price, deposit_percentage, description, currency, is_active,
+        booking_type, pricing, estimated_duration, requires_approval, customer_notes_enabled, created_at, updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10, $11, $12, $13, $14, NOW(), NOW())
       RETURNING *
     `;
-    
     const result = await pool.query(query, [
-      id, userId, title, durationMinutes, location, totalPrice, depositPercentage, description, currency
+      id,
+      userId,
+      data.title,
+      data.durationMinutes ?? null,
+      data.location,
+      data.totalPrice ?? null,
+      data.depositPercentage ?? null,
+      data.description,
+      data.currency,
+      data.bookingType,
+      data.pricing ? JSON.stringify(data.pricing) : null,
+      data.estimatedDuration ?? null,
+      data.requiresApproval ?? (data.bookingType === 'flexible' || data.bookingType === 'quote'),
+      data.customerNotesEnabled ?? false
     ]);
-    
     return this.mapRowToService(result.rows[0]);
   }
 
@@ -96,6 +116,11 @@ export class ServiceService {
       description: row.description,
       currency: row.currency,
       isActive: row.is_active,
+      bookingType: row.booking_type,
+      pricing: row.pricing ? (typeof row.pricing === 'string' ? JSON.parse(row.pricing) : row.pricing) : undefined,
+      estimatedDuration: row.estimated_duration,
+      requiresApproval: row.requires_approval,
+      customerNotesEnabled: row.customer_notes_enabled,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
