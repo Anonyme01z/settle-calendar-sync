@@ -211,8 +211,6 @@ router.get('/google/callback', async (req, res) => {
     }
 
     // Store tokens
-    // The problem: tokens.refresh_token can be null, but updateGoogleTokens expects string | undefined, not null.
-    // Solution: Pass undefined if refresh_token is null.
     await UserService.updateGoogleTokens(
       userId,
       tokens.access_token,
@@ -230,11 +228,11 @@ router.get('/google/callback', async (req, res) => {
       await BusinessService.updateProfile(userId, { settings: updatedSettings });
     }
 
-    // Redirect to frontend with success
-    res.redirect(`${process.env.FRONTEND_URL}/dashboard?calendar=connected`);
+    // Redirect to frontend's Google callback handler with status and userId
+    res.redirect(`${process.env.FRONTEND_URL}/auth/google/callback?status=success&userId=${userId}`);
   } catch (error) {
     console.error('Google OAuth callback error:', error);
-    res.redirect(`${process.env.FRONTEND_URL}/dashboard?calendar=error`);
+    res.redirect(`${process.env.FRONTEND_URL}/auth/google/callback?status=error`);
   }
 });
 

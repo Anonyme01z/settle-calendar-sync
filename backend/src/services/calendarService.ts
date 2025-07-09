@@ -53,6 +53,11 @@ export class CalendarService {
       throw new Error('Service not found');
     }
 
+    // Check if service has duration (required for appointment booking)
+    if (service.bookingType === 'appointment' && !service.durationMinutes) {
+      throw new Error('Appointment service must have duration specified');
+    }
+
     const { settings } = businessProfile;
     const { workingHours, bufferTimeMinutes, minBookingNoticeHours, timeZone } = settings;
 
@@ -96,12 +101,12 @@ export class CalendarService {
 
     // Generate potential slots
     const slots: AvailableSlot[] = [];
-    const slotDuration = service.durationMinutes + bufferTimeMinutes;
+    const slotDuration = (service.durationMinutes || 60) + bufferTimeMinutes; // Default to 60 minutes if not specified
     
     let currentTime = new Date(effectiveStart);
     
-    while (currentTime.getTime() + (service.durationMinutes * 60 * 1000) <= endOfDay.getTime()) {
-      const slotEnd = new Date(currentTime.getTime() + (service.durationMinutes * 60 * 1000));
+    while (currentTime.getTime() + ((service.durationMinutes || 60) * 60 * 1000) <= endOfDay.getTime()) {
+      const slotEnd = new Date(currentTime.getTime() + ((service.durationMinutes || 60) * 60 * 1000));
       
       // Check if this slot conflicts with any busy time
       const isAvailable = !busyTimes.some(busy => {
@@ -135,8 +140,13 @@ export class CalendarService {
       throw new Error('Service not found');
     }
 
+    // Check if service has duration (required for appointment booking)
+    if (service.bookingType === 'appointment' && !service.durationMinutes) {
+      throw new Error('Appointment service must have duration specified');
+    }
+
     const startTime = new Date(slotStartTime);
-    const endTime = new Date(startTime.getTime() + (service.durationMinutes * 60 * 1000));
+    const endTime = new Date(startTime.getTime() + ((service.durationMinutes || 60) * 60 * 1000)); // Default to 60 minutes if not specified
 
     // Double-check availability to prevent race conditions
     const freeBusyResponse = await calendar.freebusy.query({

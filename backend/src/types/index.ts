@@ -54,18 +54,32 @@ export interface Service {
   id: string;
   userId: string;
   title: string;
-  durationMinutes: number;
-  location: string;
-  totalPrice: number;
-  depositPercentage: number;
+  bookingType: 'appointment' | 'service-window' | 'on-demand';
   description: string;
+  location: string;
+  locationType?: 'online' | 'onsite';
+  meetingLink?: string;
+  address?: string;
   currency: string;
   isActive: boolean;
-  bookingType: 'fixed' | 'flexible' | 'quote';
-  pricing?: { rate: number; per: string | null };
-  estimatedDuration?: number;
+  customerNotesEnabled: boolean;
+  
+  // Appointment-specific fields
+  durationMinutes?: number;
+  totalPrice?: number;
+  depositPercentage?: number;
+  
+  // Service Window-specific fields
+  windowDuration?: number; // minutes
+  estimatedDuration?: number; // minutes
+  startingPrice?: number;
+  
+  // On-Demand specific fields
   requiresApproval?: boolean;
-  customerNotesEnabled?: boolean;
+  
+  // Legacy fields (for backward compatibility)
+  pricing?: { rate: number; per: string | null };
+  
   createdAt: Date;
   updatedAt: Date;
 }

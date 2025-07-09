@@ -1,4 +1,3 @@
-
 -- Settle Booking Application Database Schema
 -- PostgreSQL
 
@@ -48,6 +47,12 @@ CREATE TABLE IF NOT EXISTS services (
     description TEXT NOT NULL,
     currency VARCHAR(3) DEFAULT 'USD',
     is_active BOOLEAN DEFAULT true,
+    -- New fields for booking models
+    booking_type VARCHAR(16) NOT NULL DEFAULT 'fixed',
+    pricing JSONB,
+    estimated_duration INTEGER,
+    requires_approval BOOLEAN DEFAULT false,
+    customer_notes_enabled BOOLEAN DEFAULT false,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -125,3 +130,18 @@ INSERT INTO services (id, user_id, title, duration_minutes, location, total_pric
     'USD'
 );
 */
+
+ALTER TABLE services
+  ADD COLUMN booking_type VARCHAR(16) NOT NULL DEFAULT 'fixed';
+
+ALTER TABLE services
+  ADD COLUMN pricing JSONB;
+
+ALTER TABLE services
+  ADD COLUMN estimated_duration INTEGER;
+
+ALTER TABLE services
+  ADD COLUMN requires_approval BOOLEAN DEFAULT false;
+
+ALTER TABLE services
+  ADD COLUMN customer_notes_enabled BOOLEAN DEFAULT false;

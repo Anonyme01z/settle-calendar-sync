@@ -8,40 +8,92 @@ const router = express.Router();
 // Validation schemas
 const createServiceSchema = Joi.object({
   title: Joi.string().required(),
-  durationMinutes: Joi.number().min(15).max(480),
-  location: Joi.string().required(),
-  totalPrice: Joi.number().min(0),
-  depositPercentage: Joi.number().min(0).max(100),
+  bookingType: Joi.string().valid('appointment', 'service-window', 'on-demand').required(),
   description: Joi.string().required(),
+  location: Joi.string().required(),
+  locationType: Joi.string().valid('online', 'onsite').optional(),
+  meetingLink: Joi.string().uri().allow('').optional(),
+  address: Joi.string().allow('').optional(),
   currency: Joi.string().length(3).default('USD'),
-  bookingType: Joi.string().valid('fixed', 'flexible', 'quote').required(),
+  customerNotesEnabled: Joi.boolean().default(false),
+  
+  // Appointment-specific fields
+  durationMinutes: Joi.number().min(15).max(480).when('bookingType', { 
+    is: 'appointment', 
+    then: Joi.required(), 
+    otherwise: Joi.optional() 
+  }),
+  totalPrice: Joi.number().min(0).when('bookingType', { 
+    is: 'appointment', 
+    then: Joi.required(), 
+    otherwise: Joi.optional() 
+  }),
+  depositPercentage: Joi.number().min(0).max(100).when('bookingType', { 
+    is: 'appointment', 
+    then: Joi.required(), 
+    otherwise: Joi.optional() 
+  }),
+  
+  // Service Window-specific fields
+  windowDuration: Joi.number().min(15).max(480).when('bookingType', { 
+    is: 'service-window', 
+    then: Joi.required(), 
+    otherwise: Joi.optional() 
+  }),
+  estimatedDuration: Joi.number().min(1).when('bookingType', { 
+    is: 'service-window', 
+    then: Joi.optional(), 
+    otherwise: Joi.optional() 
+  }),
+  startingPrice: Joi.number().min(0).when('bookingType', { 
+    is: 'service-window', 
+    then: Joi.required(), 
+    otherwise: Joi.optional() 
+  }),
+  
+  // On-Demand specific fields
+  requiresApproval: Joi.boolean().when('bookingType', { 
+    is: 'on-demand', 
+    then: Joi.required(), 
+    otherwise: Joi.optional() 
+  }),
+  
+  // Legacy fields (for backward compatibility)
   pricing: Joi.object({
     rate: Joi.number().min(0).required(),
     per: Joi.string().allow(null)
-  }).when('bookingType', { is: Joi.valid('flexible'), then: Joi.required(), otherwise: Joi.optional() }),
-  estimatedDuration: Joi.number().min(1).when('bookingType', { is: Joi.valid('flexible', 'quote'), then: Joi.optional() }),
-  requiresApproval: Joi.boolean().default(true).when('bookingType', { is: Joi.valid('flexible', 'quote'), then: Joi.optional(), otherwise: Joi.default(false) }),
-  customerNotesEnabled: Joi.boolean().optional()
-}).custom((value, helpers) => {
-  if (value.bookingType === 'fixed') {
-    if (value.durationMinutes == null) return helpers.error('any.required', { key: 'durationMinutes' });
-    if (value.totalPrice == null) return helpers.error('any.required', { key: 'totalPrice' });
-    if (value.depositPercentage == null) return helpers.error('any.required', { key: 'depositPercentage' });
-  }
-  if (value.bookingType === 'flexible') {
-    if (!value.pricing) return helpers.error('any.required', { key: 'pricing' });
-  }
-  return value;
+  }).optional()
 });
 
 const updateServiceSchema = Joi.object({
   title: Joi.string(),
-  durationMinutes: Joi.number().min(15).max(480),
+  bookingType: Joi.string().valid('appointment', 'service-window', 'on-demand'),
+  description: Joi.string(),
   location: Joi.string(),
+  locationType: Joi.string().valid('online', 'onsite'),
+  meetingLink: Joi.string().uri().allow(''),
+  address: Joi.string().allow(''),
+  currency: Joi.string().length(3),
+  customerNotesEnabled: Joi.boolean(),
+  
+  // Appointment-specific fields
+  durationMinutes: Joi.number().min(15).max(480),
   totalPrice: Joi.number().min(0),
   depositPercentage: Joi.number().min(0).max(100),
-  description: Joi.string(),
-  currency: Joi.string().length(3)
+  
+  // Service Window-specific fields
+  windowDuration: Joi.number().min(15).max(480),
+  estimatedDuration: Joi.number().min(1),
+  startingPrice: Joi.number().min(0),
+  
+  // On-Demand specific fields
+  requiresApproval: Joi.boolean(),
+  
+  // Legacy fields
+  pricing: Joi.object({
+    rate: Joi.number().min(0).required(),
+    per: Joi.string().allow(null)
+  }).optional()
 });
 
 /**
@@ -126,26 +178,11 @@ router.post('/:userId/services', authenticateToken, async (req: AuthRequest, res
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const service = await ServiceService.createService(
-      userId,
-      value.title,
-      value.durationMinutes,
-      value.location,
-      value.totalPrice,
-      value.depositPercentage,
-      value.description,
-      value.currency,
-      value.bookingType,
-      value.pricing,
-      value.estimatedDuration,
-      value.requiresApproval,
-      value.customerNotesEnabled
-    );
-
+    const service = await ServiceService.createService(userId, value);
     res.status(201).json(service);
   } catch (error) {
     console.error('Create service error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -159,8 +196,10 @@ router.put('/:userId/services/:serviceId', authenticateToken, async (req: AuthRe
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    console.log('Update service request body:', req.body);
     const { error, value } = updateServiceSchema.validate(req.body);
     if (error) {
+      console.log('Validation error:', error.details);
       return res.status(400).json({ error: error.details[0].message });
     }
 
@@ -194,6 +233,45 @@ router.delete('/:userId/services/:serviceId', authenticateToken, async (req: Aut
     res.json({ message: 'Service deleted successfully' });
   } catch (error) {
     console.error('Delete service error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/services/booking-types:
+ *   get:
+ *     summary: Get available booking types
+ *     responses:
+ *       200:
+ *         description: List of available booking types
+ */
+router.get('/services/booking-types', async (req, res) => {
+  try {
+    const bookingTypes = [
+      {
+        value: 'appointment',
+        label: 'Appointment',
+        description: 'Fixed time slots with specific duration and price',
+        requiredFields: ['durationMinutes', 'totalPrice', 'depositPercentage']
+      },
+      {
+        value: 'service-window',
+        label: 'Service Window',
+        description: 'Flexible time windows with starting price',
+        requiredFields: ['windowDuration', 'startingPrice']
+      },
+      {
+        value: 'on-demand',
+        label: 'On-Demand',
+        description: 'Custom requests requiring approval',
+        requiredFields: ['requiresApproval']
+      }
+    ];
+
+    res.json(bookingTypes);
+  } catch (error) {
+    console.error('Get booking types error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

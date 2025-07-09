@@ -41,6 +41,11 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Version endpoint for deployment verification
+app.get('/api/version', (req, res) => {
+  res.json({ version: 'NEW_BOOKING_MODEL' });
+});
+
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/business', businessRoutes);
