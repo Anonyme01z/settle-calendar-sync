@@ -132,16 +132,16 @@ INSERT INTO services (id, user_id, title, duration_minutes, location, total_pric
 */
 
 ALTER TABLE services
-  ADD COLUMN booking_type VARCHAR(16) NOT NULL DEFAULT 'fixed';
+  ADD COLUMN IF NOT EXISTS booking_type VARCHAR(16) NOT NULL DEFAULT 'fixed';
 
 ALTER TABLE services
-  ADD COLUMN pricing JSONB;
+  ADD COLUMN IF NOT EXISTS pricing JSONB;
 
 ALTER TABLE services
-  ADD COLUMN estimated_duration INTEGER;
+  ADD COLUMN IF NOT EXISTS estimated_duration INTEGER;
 
 ALTER TABLE services
-  ADD COLUMN requires_approval BOOLEAN DEFAULT false;
+  ADD COLUMN IF NOT EXISTS requires_approval BOOLEAN DEFAULT false;
 
 ALTER TABLE services
-  ADD COLUMN customer_notes_enabled BOOLEAN DEFAULT false;
+  ADD COLUMN IF NOT EXISTS customer_notes_enabled BOOLEAN DEFAULT false;

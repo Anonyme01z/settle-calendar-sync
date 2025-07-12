@@ -2,6 +2,10 @@ import express from 'express';
 import { BusinessService } from '../services/businessService';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 import Joi from 'joi';
+// @ts-ignore: If you haven't installed multer, run: npm install multer
+import multer, { StorageEngine, FileFilterCallback } from 'multer';
+import path from 'path';
+import { Request } from 'express';
 
 const router = express.Router();
 
@@ -34,6 +38,76 @@ const updateProfileSchema = Joi.object({
     website: Joi.string().uri().allow('')
   })
 });
+
+// Set up multer for file uploads
+const storage: StorageEngine = multer.diskStorage({
+  destination: function (req: Request, file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) {
+    cb(null, path.join(__dirname, '../../uploads'));
+  },
+  filename: function (req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) {
+    const ext = path.extname(file.originalname);
+    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+    cb(null, uniqueName);
+  }
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB limit
+  fileFilter: (req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed!'));
+    }
+  }
+});
+
+/**
+ * @openapi
+ * /api/business/{userId}/avatar:
+ *   post:
+ *     summary: Upload avatar image
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               avatar:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Avatar uploaded
+ */
+router.post('/:userId/avatar', authenticateToken, upload.single('avatar'), async (req: AuthRequest, res) => {
+  try {
+    const { userId } = req.params;
+    if (req.userId !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    const file = (req as Request & { file?: Express.Multer.File }).file;
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    // Construct the URL to the uploaded file
+    const fileUrl = `/uploads/${file.filename}`;
+    res.json({ url: fileUrl });
+  } catch (error) {
+    console.error('Avatar upload error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Serve uploaded files statically
+router.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 
 /**
  * @openapi

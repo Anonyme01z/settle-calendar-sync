@@ -16,6 +16,7 @@ const createServiceSchema = Joi.object({
   address: Joi.string().allow('').optional(),
   currency: Joi.string().length(3).default('USD'),
   customerNotesEnabled: Joi.boolean().default(false),
+  isActive: Joi.boolean(),
   
   // Appointment-specific fields
   durationMinutes: Joi.number().min(15).max(480).when('bookingType', { 
@@ -75,6 +76,7 @@ const updateServiceSchema = Joi.object({
   address: Joi.string().allow(''),
   currency: Joi.string().length(3),
   customerNotesEnabled: Joi.boolean(),
+  isActive: Joi.boolean(),
   
   // Appointment-specific fields
   durationMinutes: Joi.number().min(15).max(480),

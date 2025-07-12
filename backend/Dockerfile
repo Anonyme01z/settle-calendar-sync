@@ -17,6 +17,9 @@ COPY . .
 # Build TypeScript
 RUN npm run build
 
+# Diagnostic: List build output
+RUN ls -la /app/dist && ls -la /app
+
 # Remove devDependencies after build
 RUN npm prune --production
 

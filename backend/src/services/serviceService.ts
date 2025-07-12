@@ -34,22 +34,22 @@ export class ServiceService {
     }
   ): Promise<Service> {
     try {
-      const id = uuidv4();
-      const query = `
-        INSERT INTO services (
+    const id = uuidv4();
+    const query = `
+      INSERT INTO services (
           id, user_id, title, booking_type, description, location, location_type, 
           meeting_link, address, currency, is_active, customer_notes_enabled,
           duration_minutes, total_price, deposit_percentage, window_duration, 
           estimated_duration, starting_price, requires_approval, pricing, 
           created_at, updated_at
-        )
+      )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), NOW())
-        RETURNING *
-      `;
-      const result = await pool.query(query, [
-        id,
-        userId,
-        data.title,
+      RETURNING *
+    `;
+    const result = await pool.query(query, [
+      id,
+      userId,
+      data.title,
         data.bookingType,
         data.description,
         data.location,
@@ -58,16 +58,16 @@ export class ServiceService {
         data.address ?? null,
         data.currency,
         data.customerNotesEnabled ?? false,
-        data.durationMinutes ?? null,
-        data.totalPrice ?? null,
-        data.depositPercentage ?? null,
+      data.durationMinutes ?? null,
+      data.totalPrice ?? null,
+      data.depositPercentage ?? null,
         data.windowDuration ?? null,
-        data.estimatedDuration ?? null,
+      data.estimatedDuration ?? null,
         data.startingPrice ?? null,
         data.requiresApproval ?? null,
         data.pricing ? JSON.stringify(data.pricing) : null
-      ]);
-      return this.mapRowToService(result.rows[0]);
+    ]);
+    return this.mapRowToService(result.rows[0]);
     } catch (error) {
       console.error('Create service error:', error);
       throw new Error('Failed to create service: ' + (error instanceof Error ? error.message : String(error)));

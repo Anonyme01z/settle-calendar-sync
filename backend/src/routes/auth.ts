@@ -12,8 +12,7 @@ const router = express.Router();
 const registerSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(6).required(),
-  businessName: Joi.string().required(),
-  businessHandle: Joi.string().alphanum().min(3).max(20).required()
+  businessName: Joi.string().required()
 });
 
 const loginSchema = Joi.object({
@@ -45,6 +44,27 @@ const loginSchema = Joi.object({
  *       201:
  *         description: User registered successfully
  */
+// Helper to slugify business name
+function slugify(text: string): string {
+  return text
+    .toString()
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+// Helper to generate a unique handle
+async function generateUniqueHandle(businessName: string): Promise<string> {
+  let base = slugify(businessName);
+  let handle = base;
+  let i = 1;
+  while (await BusinessService.findByHandle(handle)) {
+    handle = `${base}-${i++}`;
+  }
+  return handle;
+}
+
 router.post('/register', async (req, res) => {
   try {
     const { error, value } = registerSchema.validate(req.body);
@@ -52,7 +72,7 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { email, password, businessName, businessHandle } = value;
+    const { email, password, businessName } = value;
 
     // Check if user already exists
     const existingUser = await UserService.findByEmail(email);
@@ -60,11 +80,8 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'User already exists' });
     }
 
-    // Check if handle is taken
-    const existingHandle = await BusinessService.findByHandle(businessHandle);
-    if (existingHandle) {
-      return res.status(400).json({ error: 'Business handle already taken' });
-    }
+    // Auto-generate unique handle from businessName
+    const businessHandle = await generateUniqueHandle(businessName);
 
     // Create user
     const user = await UserService.createUser(email, password);
@@ -105,7 +122,10 @@ router.post('/register', async (req, res) => {
         id: user.id,
         email: user.email
       },
-      businessProfile
+      businessProfile: {
+        ...businessProfile,
+        handle: businessHandle // Ensure handle is returned
+      }
     });
   } catch (error) {
     console.error('Registration error:', error);
