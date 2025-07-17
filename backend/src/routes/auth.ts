@@ -263,7 +263,7 @@ router.post('/google/disconnect', authenticateToken, async (req: AuthRequest, re
   }
   try {
     // Remove tokens from user
-    await UserService.updateGoogleTokens(req.userId as string, null, null, null);
+    await UserService.updateGoogleTokens(req.userId as string, undefined, undefined, undefined);
     // Update business profile
     const businessProfile = await BusinessService.findByUserId(req.userId as string);
     if (businessProfile) {

@@ -42,10 +42,15 @@ export class UserService {
     return this.mapRowToUser(result.rows[0]);
   }
 
-  static async updateGoogleTokens(userId: string, accessToken: string, refreshToken?: string, expiryDate?: number): Promise<void> {
-    const encryptedAccessToken = encrypt(accessToken);
+  static async updateGoogleTokens(
+    userId: string,
+    accessToken?: string,
+    refreshToken?: string,
+    expiry?: number
+  ): Promise<void> {
+    const encryptedAccessToken = accessToken ? encrypt(accessToken) : null;
     const encryptedRefreshToken = refreshToken ? encrypt(refreshToken) : null;
-    const expiry = expiryDate ? new Date(expiryDate) : null;
+    const expiryDate = expiry ? new Date(expiry) : null;
 
     const query = `
       UPDATE users 
@@ -53,7 +58,7 @@ export class UserService {
       WHERE id = $4
     `;
     
-    await pool.query(query, [encryptedAccessToken, encryptedRefreshToken, expiry, userId]);
+    await pool.query(query, [encryptedAccessToken, encryptedRefreshToken, expiryDate, userId]);
   }
 
   static async getGoogleTokens(userId: string): Promise<{ accessToken: string; refreshToken?: string; expiry?: Date } | null> {
