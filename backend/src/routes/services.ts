@@ -7,95 +7,59 @@ const router = express.Router();
 
 // Validation schemas
 const createServiceSchema = Joi.object({
+  bookingType: Joi.string().valid('fixed', 'flexible').required(),
   title: Joi.string().required(),
-  bookingType: Joi.string().valid('appointment', 'service-window', 'on-demand').required(),
   description: Joi.string().required(),
   location: Joi.string().required(),
-  locationType: Joi.string().valid('online', 'onsite').optional(),
-  meetingLink: Joi.string().uri().allow('').optional(),
-  address: Joi.string().allow('').optional(),
+  locationType: Joi.string().valid('online', 'offline').required(),
+  meetingLink: Joi.string().uri().when('locationType', {
+    is: 'online',
+    then: Joi.required(),
+    otherwise: Joi.forbidden()
+  }),
+  address: Joi.string().when('locationType', {
+    is: 'offline',
+    then: Joi.required(),
+    otherwise: Joi.forbidden()
+  }),
+  price: Joi.number().min(0).required(),
   currency: Joi.string().length(3).default('USD'),
   customerNotesEnabled: Joi.boolean().default(false),
   isActive: Joi.boolean(),
-  
-  // Appointment-specific fields
-  durationMinutes: Joi.number().min(15).max(480).when('bookingType', { 
-    is: 'appointment', 
-    then: Joi.required(), 
-    otherwise: Joi.optional() 
+  capacity: Joi.number().integer().min(1).when('bookingType', {
+    is: 'flexible',
+    then: Joi.required(),
+    otherwise: Joi.forbidden()
   }),
-  totalPrice: Joi.number().min(0).when('bookingType', { 
-    is: 'appointment', 
-    then: Joi.required(), 
-    otherwise: Joi.optional() 
-  }),
-  depositPercentage: Joi.number().min(0).max(100).when('bookingType', { 
-    is: 'appointment', 
-    then: Joi.required(), 
-    otherwise: Joi.optional() 
-  }),
-  
-  // Service Window-specific fields
-  windowDuration: Joi.number().min(15).max(480).when('bookingType', { 
-    is: 'service-window', 
-    then: Joi.required(), 
-    otherwise: Joi.optional() 
-  }),
-  estimatedDuration: Joi.number().min(1).when('bookingType', { 
-    is: 'service-window', 
-    then: Joi.optional(), 
-    otherwise: Joi.optional() 
-  }),
-  startingPrice: Joi.number().min(0).when('bookingType', { 
-    is: 'service-window', 
-    then: Joi.required(), 
-    otherwise: Joi.optional() 
-  }),
-  
-  // On-Demand specific fields
-  requiresApproval: Joi.boolean().when('bookingType', { 
-    is: 'on-demand', 
-    then: Joi.required(), 
-    otherwise: Joi.optional() 
-  }),
-  
-  // Legacy fields (for backward compatibility)
-  pricing: Joi.object({
-    rate: Joi.number().min(0).required(),
-    per: Joi.string().allow(null)
-  }).optional()
+  depositPercentage: Joi.number().integer().min(0).max(100).default(0)
 });
 
 const updateServiceSchema = Joi.object({
+  bookingType: Joi.string().valid('fixed', 'flexible'),
   title: Joi.string(),
-  bookingType: Joi.string().valid('appointment', 'service-window', 'on-demand'),
   description: Joi.string(),
   location: Joi.string(),
-  locationType: Joi.string().valid('online', 'onsite'),
-  meetingLink: Joi.string().uri().allow(''),
-  address: Joi.string().allow(''),
+  locationType: Joi.string().valid('online', 'offline'),
+  meetingLink: Joi.string().uri().when('locationType', {
+    is: 'online',
+    then: Joi.required(),
+    otherwise: Joi.forbidden()
+  }),
+  address: Joi.string().when('locationType', {
+    is: 'offline',
+    then: Joi.required(),
+    otherwise: Joi.forbidden()
+  }),
+  price: Joi.number().min(0),
   currency: Joi.string().length(3),
   customerNotesEnabled: Joi.boolean(),
   isActive: Joi.boolean(),
-  
-  // Appointment-specific fields
-  durationMinutes: Joi.number().min(15).max(480),
-  totalPrice: Joi.number().min(0),
-  depositPercentage: Joi.number().min(0).max(100),
-  
-  // Service Window-specific fields
-  windowDuration: Joi.number().min(15).max(480),
-  estimatedDuration: Joi.number().min(1),
-  startingPrice: Joi.number().min(0),
-  
-  // On-Demand specific fields
-  requiresApproval: Joi.boolean(),
-  
-  // Legacy fields
-  pricing: Joi.object({
-    rate: Joi.number().min(0).required(),
-    per: Joi.string().allow(null)
-  }).optional()
+  capacity: Joi.number().integer().min(1).when('bookingType', {
+    is: 'flexible',
+    then: Joi.required(),
+    otherwise: Joi.forbidden()
+  }),
+  depositPercentage: Joi.number().integer().min(0).max(100)
 });
 
 /**
@@ -252,22 +216,16 @@ router.get('/services/booking-types', async (req, res) => {
   try {
     const bookingTypes = [
       {
-        value: 'appointment',
-        label: 'Appointment',
-        description: 'Fixed time slots with specific duration and price',
-        requiredFields: ['durationMinutes', 'totalPrice', 'depositPercentage']
+        value: 'fixed',
+        label: 'Fixed',
+        description: 'Only one customer can book a slot at a time (e.g., therapist, consultant)',
+        requiredFields: []
       },
       {
-        value: 'service-window',
-        label: 'Service Window',
-        description: 'Flexible time windows with starting price',
-        requiredFields: ['windowDuration', 'startingPrice']
-      },
-      {
-        value: 'on-demand',
-        label: 'On-Demand',
-        description: 'Custom requests requiring approval',
-        requiredFields: ['requiresApproval']
+        value: 'flexible',
+        label: 'Flexible',
+        description: 'Multiple customers can book the same slot, up to the specified capacity (e.g., group class, salon with staff)',
+        requiredFields: ['capacity']
       }
     ];
 

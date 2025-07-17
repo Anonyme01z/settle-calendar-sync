@@ -42,14 +42,12 @@ CREATE TABLE IF NOT EXISTS services (
     title VARCHAR(255) NOT NULL,
     duration_minutes INTEGER NOT NULL CHECK (duration_minutes > 0),
     location VARCHAR(255) NOT NULL,
-    total_price DECIMAL(10,2) NOT NULL CHECK (total_price >= 0),
     deposit_percentage INTEGER NOT NULL CHECK (deposit_percentage >= 0 AND deposit_percentage <= 100),
     description TEXT NOT NULL,
     currency VARCHAR(3) DEFAULT 'USD',
     is_active BOOLEAN DEFAULT true,
     -- New fields for booking models
     booking_type VARCHAR(16) NOT NULL DEFAULT 'fixed',
-    pricing JSONB,
     estimated_duration INTEGER,
     requires_approval BOOLEAN DEFAULT false,
     customer_notes_enabled BOOLEAN DEFAULT false,
@@ -131,11 +129,14 @@ INSERT INTO services (id, user_id, title, duration_minutes, location, total_pric
 );
 */
 
-ALTER TABLE services
-  ADD COLUMN IF NOT EXISTS booking_type VARCHAR(16) NOT NULL DEFAULT 'fixed';
+-- Remove legacy price fields and add a single price field
+ALTER TABLE services DROP COLUMN IF EXISTS total_price;
+ALTER TABLE services DROP COLUMN IF EXISTS starting_price;
+ALTER TABLE services DROP COLUMN IF EXISTS pricing;
+ALTER TABLE services ADD COLUMN IF NOT EXISTS price DECIMAL(10,2) NOT NULL DEFAULT 0;
 
 ALTER TABLE services
-  ADD COLUMN IF NOT EXISTS pricing JSONB;
+  ADD COLUMN IF NOT EXISTS booking_type VARCHAR(16) NOT NULL DEFAULT 'fixed';
 
 ALTER TABLE services
   ADD COLUMN IF NOT EXISTS estimated_duration INTEGER;
@@ -145,3 +146,18 @@ ALTER TABLE services
 
 ALTER TABLE services
   ADD COLUMN IF NOT EXISTS customer_notes_enabled BOOLEAN DEFAULT false;
+
+ALTER TABLE services
+  ADD COLUMN IF NOT EXISTS location_type VARCHAR(16);
+ALTER TABLE services
+  ADD COLUMN IF NOT EXISTS meeting_link TEXT;
+ALTER TABLE services
+  ADD COLUMN IF NOT EXISTS address TEXT;
+
+-- Migration for new booking types and capacity
+ALTER TABLE services
+  ALTER COLUMN booking_type TYPE VARCHAR(16);
+ALTER TABLE services
+  ADD COLUMN IF NOT EXISTS capacity INTEGER;
+-- Optionally, update existing rows to set capacity to 1 for fixed bookings
+UPDATE services SET capacity = 1 WHERE booking_type = 'fixed' AND capacity IS NULL;

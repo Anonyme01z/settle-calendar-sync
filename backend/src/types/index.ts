@@ -54,32 +54,26 @@ export interface Service {
   id: string;
   userId: string;
   title: string;
-  bookingType: 'appointment' | 'service-window' | 'on-demand';
+  bookingType: 'fixed' | 'flexible';
   description: string;
   location: string;
-  locationType?: 'online' | 'onsite';
+  locationType?: 'online' | 'onsite' | 'offline';
   meetingLink?: string;
   address?: string;
   currency: string;
   isActive: boolean;
   customerNotesEnabled: boolean;
-  
-  // Appointment-specific fields
+  // Fixed/Flexible booking
+  capacity?: number; // Only for flexible
+  price: number;
+  depositPercentage: number;
+  // Appointment-specific fields (legacy, can be removed if not needed)
   durationMinutes?: number;
-  totalPrice?: number;
-  depositPercentage?: number;
-  
   // Service Window-specific fields
   windowDuration?: number; // minutes
   estimatedDuration?: number; // minutes
-  startingPrice?: number;
-  
   // On-Demand specific fields
   requiresApproval?: boolean;
-  
-  // Legacy fields (for backward compatibility)
-  pricing?: { rate: number; per: string | null };
-  
   createdAt: Date;
   updatedAt: Date;
 }

@@ -256,4 +256,29 @@ router.get('/google/callback', async (req, res) => {
   }
 });
 
+// Google Calendar Disconnect
+router.post('/google/disconnect', authenticateToken, async (req: AuthRequest, res) => {
+  if (!req.userId) {
+    return res.status(400).json({ error: 'User ID is required' });
+  }
+  try {
+    // Remove tokens from user
+    await UserService.updateGoogleTokens(req.userId as string, null, null, null);
+    // Update business profile
+    const businessProfile = await BusinessService.findByUserId(req.userId as string);
+    if (businessProfile) {
+      const updatedSettings = {
+        ...businessProfile.settings,
+        calendarConnected: false
+      };
+      await BusinessService.updateProfile(req.userId as string, { settings: updatedSettings });
+    }
+    // Optionally, revoke token with Google (not required for local cleanup)
+    res.json({ message: 'Google Calendar disconnected successfully' });
+  } catch (error) {
+    console.error('Google disconnect error:', error);
+    res.status(500).json({ error: 'Failed to disconnect Google Calendar' });
+  }
+});
+
 export default router;

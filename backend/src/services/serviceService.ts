@@ -6,68 +6,50 @@ export class ServiceService {
   static async createService(
     userId: string,
     data: {
+      bookingType: 'fixed' | 'flexible';
       title: string;
-      bookingType: 'appointment' | 'service-window' | 'on-demand';
       description: string;
       location: string;
-      locationType?: 'online' | 'onsite';
+      locationType: 'online' | 'offline';
       meetingLink?: string;
       address?: string;
+      price: number;
       currency: string;
       customerNotesEnabled?: boolean;
-      
-      // Appointment-specific fields
-      durationMinutes?: number;
-      totalPrice?: number;
+      isActive?: boolean;
+      capacity?: number;
       depositPercentage?: number;
-      
-      // Service Window-specific fields
-      windowDuration?: number;
-      estimatedDuration?: number;
-      startingPrice?: number;
-      
-      // On-Demand specific fields
-      requiresApproval?: boolean;
-      
-      // Legacy fields
-      pricing?: { rate: number; per: string | null };
     }
   ): Promise<Service> {
     try {
-    const id = uuidv4();
-    const query = `
-      INSERT INTO services (
-          id, user_id, title, booking_type, description, location, location_type, 
-          meeting_link, address, currency, is_active, customer_notes_enabled,
-          duration_minutes, total_price, deposit_percentage, window_duration, 
-          estimated_duration, starting_price, requires_approval, pricing, 
-          created_at, updated_at
-      )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), NOW())
-      RETURNING *
-    `;
-    const result = await pool.query(query, [
-      id,
-      userId,
-      data.title,
+      const id = uuidv4();
+      const query = `
+        INSERT INTO services (
+            id, user_id, booking_type, title, description, location, location_type, 
+            meeting_link, address, total_price, deposit_percentage, currency, is_active, customer_notes_enabled,
+            capacity, created_at, updated_at
+        )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
+        RETURNING *
+      `;
+      const result = await pool.query(query, [
+        id,
+        userId,
         data.bookingType,
+        data.title,
         data.description,
         data.location,
-        data.locationType ?? null,
+        data.locationType,
         data.meetingLink ?? null,
         data.address ?? null,
+        data.price, // map price to total_price
+        data.depositPercentage ?? 0,
         data.currency,
+        data.isActive ?? true,
         data.customerNotesEnabled ?? false,
-      data.durationMinutes ?? null,
-      data.totalPrice ?? null,
-      data.depositPercentage ?? null,
-        data.windowDuration ?? null,
-      data.estimatedDuration ?? null,
-        data.startingPrice ?? null,
-        data.requiresApproval ?? null,
-        data.pricing ? JSON.stringify(data.pricing) : null
-    ]);
-    return this.mapRowToService(result.rows[0]);
+        data.bookingType === 'flexible' ? data.capacity : null
+      ]);
+      return this.mapRowToService(result.rows[0]);
     } catch (error) {
       console.error('Create service error:', error);
       throw new Error('Failed to create service: ' + (error instanceof Error ? error.message : String(error)));
@@ -98,30 +80,33 @@ export class ServiceService {
     let paramCount = 1;
 
     const allowedFields = [
-      'title', 'bookingType', 'description', 'location', 'locationType', 
-      'meetingLink', 'address', 'currency', 'customerNotesEnabled',
-      'durationMinutes', 'totalPrice', 'depositPercentage', 
-      'windowDuration', 'estimatedDuration', 'startingPrice', 
-      'requiresApproval', 'pricing'
+      'bookingType', 'title', 'description', 'location', 'locationType', 
+      'meetingLink', 'address', 'price', 'total_price', 'depositPercentage', 'currency', 'customerNotesEnabled',
+      'capacity',
+      'durationMinutes', 'depositPercentage', 
+      'windowDuration', 'estimatedDuration', 
+      'requiresApproval'
     ];
     
     allowedFields.forEach(field => {
       if (updates[field as keyof Service] !== undefined) {
-        const dbField = field === 'durationMinutes' ? 'duration_minutes' : 
-                       field === 'totalPrice' ? 'total_price' :
-                       field === 'depositPercentage' ? 'deposit_percentage' : 
-                       field === 'bookingType' ? 'booking_type' :
-                       field === 'locationType' ? 'location_type' :
-                       field === 'meetingLink' ? 'meeting_link' :
-                       field === 'customerNotesEnabled' ? 'customer_notes_enabled' :
-                       field === 'windowDuration' ? 'window_duration' :
-                       field === 'estimatedDuration' ? 'estimated_duration' :
-                       field === 'startingPrice' ? 'starting_price' :
-                       field === 'requiresApproval' ? 'requires_approval' : field;
+        const dbField = field === 'price' ? 'total_price' :
+          field === 'depositPercentage' ? 'deposit_percentage' :
+          field === 'bookingType' ? 'booking_type' :
+          field === 'locationType' ? 'location_type' :
+          field === 'meetingLink' ? 'meeting_link' :
+          field === 'customerNotesEnabled' ? 'customer_notes_enabled' :
+          field === 'windowDuration' ? 'window_duration' :
+          field === 'estimatedDuration' ? 'estimated_duration' : field;
         setClause.push(`${dbField} = $${paramCount++}`);
         values.push(updates[field as keyof Service]);
       }
     });
+
+    // If bookingType is being set to 'fixed', clear capacity
+    if (updates.bookingType === 'fixed') {
+      setClause.push(`capacity = NULL`);
+    }
 
     setClause.push(`updated_at = NOW()`);
     values.push(serviceId, userId);
@@ -155,26 +140,20 @@ export class ServiceService {
       locationType: row.location_type,
       meetingLink: row.meeting_link,
       address: row.address,
+      price: Number(row.total_price),
       currency: row.currency,
       isActive: row.is_active,
       customerNotesEnabled: row.customer_notes_enabled,
-      
-      // Appointment-specific fields
-      durationMinutes: row.duration_minutes,
-      totalPrice: row.total_price,
+      // Fixed/Flexible booking
+      capacity: row.capacity,
       depositPercentage: row.deposit_percentage,
-      
+      // Appointment-specific fields (legacy, can be removed if not needed)
+      durationMinutes: row.duration_minutes,
       // Service Window-specific fields
       windowDuration: row.window_duration,
       estimatedDuration: row.estimated_duration,
-      startingPrice: row.starting_price,
-      
       // On-Demand specific fields
       requiresApproval: row.requires_approval,
-      
-      // Legacy fields
-      pricing: row.pricing ? (typeof row.pricing === 'string' ? JSON.parse(row.pricing) : row.pricing) : undefined,
-      
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };

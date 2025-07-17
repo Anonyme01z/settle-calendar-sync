@@ -53,11 +53,7 @@ export class CalendarService {
       throw new Error('Service not found');
     }
 
-    // Check if service has duration (required for appointment booking)
-    if (service.bookingType === 'appointment' && !service.durationMinutes) {
-      throw new Error('Appointment service must have duration specified');
-    }
-
+    // Get business settings
     const { settings } = businessProfile;
     const { workingHours, bufferTimeMinutes, minBookingNoticeHours, timeZone } = settings;
 
@@ -74,7 +70,6 @@ export class CalendarService {
     // Create time boundaries for the day
     const startOfDay = new Date(targetDate);
     startOfDay.setHours(parseInt(workingDay.startTime.split(':')[0]), parseInt(workingDay.startTime.split(':')[1]), 0, 0);
-    
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(parseInt(workingDay.endTime.split(':')[0]), parseInt(workingDay.endTime.split(':')[1]), 0, 0);
 
@@ -82,51 +77,70 @@ export class CalendarService {
     const now = new Date();
     const minBookingTime = new Date(now.getTime() + (minBookingNoticeHours * 60 * 60 * 1000));
     const effectiveStart = startOfDay > minBookingTime ? startOfDay : minBookingTime;
-
     if (effectiveStart >= endOfDay) {
       return [];
     }
 
-    // Get busy times from Google Calendar
-    const freeBusyResponse = await calendar.freebusy.query({
-      requestBody: {
-        timeMin: startOfDay.toISOString(),
-        timeMax: endOfDay.toISOString(),
-        timeZone: timeZone,
-        items: [{ id: 'primary' }]
-      }
-    });
-
-    const busyTimes = freeBusyResponse.data.calendars?.primary?.busy || [];
+    // Get busy times from Google Calendar (for fixed only)
+    let busyTimes: { start: string; end: string }[] = [];
+    if (service.bookingType === 'fixed') {
+      const freeBusyResponse = await calendar.freebusy.query({
+        requestBody: {
+          timeMin: startOfDay.toISOString(),
+          timeMax: endOfDay.toISOString(),
+          timeZone: timeZone,
+          items: [{ id: 'primary' }]
+        }
+      });
+      busyTimes = (freeBusyResponse.data.calendars?.primary?.busy || [])
+        .filter((b: any) => typeof b.start === 'string' && typeof b.end === 'string')
+        .map((b: any) => ({ start: b.start as string, end: b.end as string }));
+    }
 
     // Generate potential slots
     const slots: AvailableSlot[] = [];
     const slotDuration = (service.durationMinutes || 60) + bufferTimeMinutes; // Default to 60 minutes if not specified
-    
     let currentTime = new Date(effectiveStart);
-    
+    const db = require('../config/database').default;
     while (currentTime.getTime() + ((service.durationMinutes || 60) * 60 * 1000) <= endOfDay.getTime()) {
       const slotEnd = new Date(currentTime.getTime() + ((service.durationMinutes || 60) * 60 * 1000));
-      
-      // Check if this slot conflicts with any busy time
-      const isAvailable = !busyTimes.some(busy => {
-        const busyStart = new Date(busy.start!);
-        const busyEnd = new Date(busy.end!);
-        
-        // Check for overlap
-        return (currentTime < busyEnd && slotEnd > busyStart);
-      });
-
+      let isAvailable = true;
+      if (service.bookingType === 'fixed') {
+        // Check for overlap with busy times
+        isAvailable = !busyTimes.some(busy => {
+          const busyStart = new Date(busy.start!);
+          const busyEnd = new Date(busy.end!);
+          return (currentTime < busyEnd && slotEnd > busyStart);
+        });
+        // Also check DB for existing bookings
+        if (isAvailable) {
+          // Synchronous DB call for slot
+          // eslint-disable-next-line no-await-in-loop
+          const result = await db.query(
+            `SELECT COUNT(*) FROM bookings WHERE service_id = $1 AND start_time = $2 AND status = 'confirmed'`,
+            [serviceId, currentTime.toISOString()]
+          );
+          const existingCount = parseInt(result.rows[0].count, 10);
+          if (existingCount > 0) isAvailable = false;
+        }
+      } else if (service.bookingType === 'flexible' && service.capacity) {
+        // For flexible, check DB for number of bookings in this slot
+        // eslint-disable-next-line no-await-in-loop
+        const result = await db.query(
+          `SELECT COUNT(*) FROM bookings WHERE service_id = $1 AND start_time = $2 AND status = 'confirmed'`,
+          [serviceId, currentTime.toISOString()]
+        );
+        const existingCount = parseInt(result.rows[0].count, 10);
+        if (existingCount >= service.capacity) isAvailable = false;
+      }
       slots.push({
         startTime: currentTime.toISOString(),
         endTime: slotEnd.toISOString(),
         available: isAvailable
       });
-
       // Move to next slot (including buffer time)
       currentTime = new Date(currentTime.getTime() + (slotDuration * 60 * 1000));
     }
-
     return slots.filter(slot => slot.available);
   }
 
@@ -139,12 +153,7 @@ export class CalendarService {
     if (!service) {
       throw new Error('Service not found');
     }
-
-    // Check if service has duration (required for appointment booking)
-    if (service.bookingType === 'appointment' && !service.durationMinutes) {
-      throw new Error('Appointment service must have duration specified');
-    }
-
+    // Remove appointment-specific duration check
     const startTime = new Date(slotStartTime);
     const endTime = new Date(startTime.getTime() + ((service.durationMinutes || 60) * 60 * 1000)); // Default to 60 minutes if not specified
 
@@ -166,6 +175,18 @@ export class CalendarService {
 
     if (hasConflict) {
       throw new Error('Time slot is no longer available');
+    }
+
+    // Check for existing bookings in DB for this slot
+    const db = require('../config/database').default;
+    const query = `SELECT COUNT(*) FROM bookings WHERE service_id = $1 AND start_time = $2 AND status = 'confirmed'`;
+    const result = await db.query(query, [serviceId, startTime.toISOString()]);
+    const existingCount = parseInt(result.rows[0].count, 10);
+    if (service.bookingType === 'fixed' && existingCount > 0) {
+      throw new Error('Time slot is no longer available');
+    }
+    if (service.bookingType === 'flexible' && service.capacity && existingCount >= service.capacity) {
+      throw new Error('Time slot is fully booked');
     }
 
     // Create calendar event
