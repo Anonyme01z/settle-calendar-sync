@@ -28,7 +28,7 @@ const createServiceSchema = Joi.object({
   isActive: Joi.boolean(),
   capacity: Joi.number().integer().min(1).when('bookingType', {
     is: 'flexible',
-    then: Joi.required(),
+    then: Joi.required(), 
     otherwise: Joi.forbidden()
   }),
   depositPercentage: Joi.number().integer().min(0).max(100).default(0)
