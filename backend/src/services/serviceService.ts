@@ -26,7 +26,7 @@ export class ServiceService {
       const query = `
         INSERT INTO services (
             id, user_id, booking_type, title, description, location, location_type, 
-            meeting_link, address, total_price, deposit_percentage, currency, is_active, customer_notes_enabled,
+            meeting_link, address, price, deposit_percentage, currency, is_active, customer_notes_enabled,
             capacity, created_at, updated_at
         )
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
@@ -42,7 +42,7 @@ export class ServiceService {
         data.locationType,
         data.meetingLink ?? null,
         data.address ?? null,
-        data.price, // map price to total_price
+        data.price,
         data.depositPercentage ?? 0,
         data.currency,
         data.isActive ?? true,
@@ -74,36 +74,40 @@ export class ServiceService {
     return this.mapRowToService(result.rows[0]);
   }
 
-  static async updateService(serviceId: string, userId: string, updates: Partial<Service>): Promise<Service> {
+  static async updateService(serviceId: string, userId: string, updates: Partial<Service>): Promise<Service | null> {
     const setClause = [];
     const values = [];
     let paramCount = 1;
 
     const allowedFields = [
       'bookingType', 'title', 'description', 'location', 'locationType', 
-      'meetingLink', 'address', 'price', 'total_price', 'depositPercentage', 'currency', 'customerNotesEnabled',
-      'capacity',
-      'durationMinutes', 'depositPercentage', 
-      'windowDuration', 'estimatedDuration', 
-      'requiresApproval'
+      'meetingLink', 'address', 'price', 'depositPercentage', 'currency', 'customerNotesEnabled',
+      'capacity', 'durationMinutes', 'windowDuration', 'estimatedDuration', 'requiresApproval', 'isActive'
     ];
     
     allowedFields.forEach(field => {
       if (updates[field as keyof Service] !== undefined) {
-        const dbField = field === 'price' ? 'total_price' :
-          field === 'depositPercentage' ? 'deposit_percentage' :
+        const dbField = 
           field === 'bookingType' ? 'booking_type' :
           field === 'locationType' ? 'location_type' :
           field === 'meetingLink' ? 'meeting_link' :
+          field === 'depositPercentage' ? 'deposit_percentage' :
           field === 'customerNotesEnabled' ? 'customer_notes_enabled' :
+          field === 'durationMinutes' ? 'duration_minutes' :
           field === 'windowDuration' ? 'window_duration' :
-          field === 'estimatedDuration' ? 'estimated_duration' : field;
+          field === 'estimatedDuration' ? 'estimated_duration' :
+          field === 'requiresApproval' ? 'requires_approval' :
+          field === 'isActive' ? 'is_active' :
+          field;
         setClause.push(`${dbField} = $${paramCount++}`);
         values.push(updates[field as keyof Service]);
       }
     });
 
-    // If bookingType is being set to 'fixed', clear capacity
+    if (setClause.length === 0) {
+      return this.findById(serviceId, userId);
+    }
+
     if (updates.bookingType === 'fixed') {
       setClause.push(`capacity = NULL`);
     }
@@ -114,12 +118,22 @@ export class ServiceService {
     const query = `
       UPDATE services 
       SET ${setClause.join(', ')}
-      WHERE id = $${paramCount++} AND user_id = $${paramCount}
+      WHERE id = $${paramCount} AND user_id = $${paramCount + 1}
       RETURNING *
     `;
 
-    const result = await pool.query(query, values);
-    return this.mapRowToService(result.rows[0]);
+    try {
+        const result = await pool.query(query, values);
+        
+        if (result.rows.length === 0) {
+            return null;
+        }
+
+        return this.mapRowToService(result.rows[0]);
+    } catch (error) {
+        console.error('Update service error:', error);
+        throw new Error('Failed to update service: ' + (error instanceof Error ? error.message : String(error)));
+    }
   }
 
   static async deleteService(serviceId: string, userId: string): Promise<boolean> {
@@ -140,19 +154,15 @@ export class ServiceService {
       locationType: row.location_type,
       meetingLink: row.meeting_link,
       address: row.address,
-      price: Number(row.total_price),
+      price: Number(row.price),
       currency: row.currency,
       isActive: row.is_active,
       customerNotesEnabled: row.customer_notes_enabled,
-      // Fixed/Flexible booking
       capacity: row.capacity,
       depositPercentage: row.deposit_percentage,
-      // Appointment-specific fields (legacy, can be removed if not needed)
       durationMinutes: row.duration_minutes,
-      // Service Window-specific fields
       windowDuration: row.window_duration,
       estimatedDuration: row.estimated_duration,
-      // On-Demand specific fields
       requiresApproval: row.requires_approval,
       createdAt: row.created_at,
       updatedAt: row.updated_at

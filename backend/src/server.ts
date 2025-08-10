@@ -11,6 +11,7 @@ import authRoutes from './routes/auth';
 import businessRoutes from './routes/business';
 import serviceRoutes from './routes/services';
 import calendarRoutes from './routes/calendar';
+import adminRoutes from './routes/admin'; // Import new admin routes
 import apiRoutes from './routes';
 
 dotenv.config();
@@ -50,7 +51,9 @@ app.get('/api/version', (req, res) => {
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/business', businessRoutes);
+app.use('/api/services', serviceRoutes);
 app.use('/api/calendar', calendarRoutes);
+app.use('/api/admin', adminRoutes); // Use new admin routes
 app.use('/api', apiRoutes);
 
 // Swagger UI

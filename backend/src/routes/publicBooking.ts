@@ -38,15 +38,59 @@ router.get('/business/:handle/services/:serviceId', async (req, res) => {
   res.json(service);
 });
 
-// 4. Get Available Slots for a Service
+// 4. Check Calendar Connection Status
+router.get('/business/:handle/calendar-status', async (req, res) => {
+  const { handle } = req.params;
+  if (!handle) return res.status(400).json({ error: 'Handle is required' });
+  
+  try {
+    const business = await BusinessService.findByHandle(handle);
+    if (!business) return res.status(404).json({ error: 'Business not found' });
+    
+    // Check if user has Google tokens without accessing calendar
+    const { UserService } = require('../services/userService');
+    const tokens = await UserService.getGoogleTokens(business.userId);
+    
+    res.json({
+      calendarConnected: !!tokens,
+      businessName: business.name
+    });
+  } catch (error) {
+    console.error('Error checking calendar status:', error);
+    res.status(500).json({ error: 'Failed to check calendar status' });
+  }
+});
+
+// 5. Get Available Slots for a Service
 router.get('/business/:handle/services/:serviceId/availability', async (req, res) => {
   const { handle, serviceId } = req.params;
   const { date } = req.query;
   if (!handle || !serviceId || !date) return res.status(400).json({ error: 'Handle, serviceId, and date are required' });
   const business = await BusinessService.findByHandle(handle);
   if (!business) return res.status(404).json({ error: 'Business not found' });
-  const slots = await CalendarService.getAvailableSlots(business.userId, date as string, serviceId);
-  res.json(slots);
+  try {
+    const slots = await CalendarService.getAvailableSlots(business.userId, date as string, serviceId);
+    res.json(slots);
+  } catch (err: any) {
+    if (err.message === 'GOOGLE_CALENDAR_NOT_CONNECTED') {
+      return res.status(503).json({ 
+        error: 'Calendar not available', 
+        message: `${business.name} has not connected their Google Calendar yet. Please contact them directly to schedule your appointment.` 
+      });
+    } else if (err.message === 'WORKING_HOURS_NOT_CONFIGURED') {
+      return res.status(503).json({ 
+        error: 'Working hours not configured', 
+        message: `Booking Not Available: ${business.name} has not set up their working hours yet. Please contact them directly to schedule your appointment.` 
+      });
+    } else if (err.message === 'BUSINESS_NOT_OPEN_ON_DATE') {
+      return res.status(200).json({ message: 'Booking Not Available: This business hasn\'t set up any working hours yet. Please contact them directly to schedule.' });
+    } else if (err.message === 'BUSINESS_CLOSED_TODAY') {
+      return res.status(200).json({ message: 'Booking Unavailable: This business is closed today. Please try a different date or contact them directly.' });
+    } else if (err.message === 'BUSINESS_PAUSED_ON_DATE') {
+      return res.status(200).json({ message: 'Booking Unavailable: This business is not accepting bookings on this date. Please try another day.' });
+    }
+    res.status(400).json({ error: err.message || 'Failed to retrieve available slots' });
+  }
 });
 
 // 5. Create a Booking
@@ -73,8 +117,23 @@ router.post('/business/:handle/services/:serviceId/book', async (req, res) => {
     );
     res.json({ success: true, bookingId: booking.eventId, message: 'Booking confirmed!' });
   } catch (err: any) {
+    if (err.message === 'GOOGLE_CALENDAR_NOT_CONNECTED') {
+      return res.status(503).json({ 
+        error: 'Calendar not available', 
+        message: `${business.name} has not connected their Google Calendar yet. Please contact them directly to schedule your appointment.` 
+      });
+    } else if (err.message === 'WORKING_HOURS_NOT_CONFIGURED') {
+      return res.status(503).json({ 
+        error: 'Working hours not configured', 
+        message: `Booking Not Available: ${business.name} has not set up their working hours yet. Please contact them directly to schedule your appointment.` 
+      });
+    } else if (err.message === 'BOOKING_OUTSIDE_WINDOW') {
+      return res.status(400).json({ error: 'Booking date is outside the allowed booking window for this service.' });
+    } else if (err.message === 'BOOKING_ON_PAUSED_DATE') {
+      return res.status(400).json({ error: 'Cannot book on a paused date.' });
+    }
     res.status(400).json({ error: err.message || 'Failed to create booking' });
   }
 });
 
-export default router; 
+export default router;

@@ -2,13 +2,15 @@ import { calendar, oauth2Client } from '../config/google';
 import { UserService } from './userService';
 import { BusinessService } from './businessService';
 import { ServiceService } from './serviceService';
+import { PauseService } from './pauseService'; // Import PauseService
 import { AvailableSlot, WorkingDay } from '../types';
+import pool from '../config/database';
 
 export class CalendarService {
   static async refreshAccessTokenIfNeeded(userId: string): Promise<string> {
     const tokens = await UserService.getGoogleTokens(userId);
     if (!tokens) {
-      throw new Error('No Google tokens found for user');
+      throw new Error('GOOGLE_CALENDAR_NOT_CONNECTED');
     }
 
     // Check if token is expired
@@ -48,6 +50,11 @@ export class CalendarService {
       throw new Error('Business profile not found');
     }
 
+    // Check if working hours have been set up
+    if (!businessProfile.settings.hasSetWorkingHours) {
+      throw new Error('WORKING_HOURS_NOT_CONFIGURED');
+    }
+
     const service = await ServiceService.findById(serviceId, userId);
     if (!service) {
       throw new Error('Service not found');
@@ -55,16 +62,29 @@ export class CalendarService {
 
     // Get business settings
     const { settings } = businessProfile;
-    const { workingHours, bufferTimeMinutes, minBookingNoticeHours, timeZone } = settings;
+    const { bufferTimeMinutes, minBookingNoticeHours, timeZone } = settings;
 
     // Parse the target date
     const targetDate = new Date(date);
     const dayName = targetDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
 
-    // Find working hours for this day
-    const workingDay = workingHours.find(wh => wh.day.toLowerCase() === dayName);
-    if (!workingDay || !workingDay.isWorkingDay) {
-      return [];
+    // Check if business is paused on this date
+    const pausedWindows = await PauseService.getPauseWindows(userId, date);
+    if (pausedWindows.length > 0) {
+      throw new Error('BUSINESS_PAUSED_ON_DATE'); // Throw a specific error for paused dates
+    }
+
+    // Get effective working hours for the target date
+    const effectiveWorkingHours = await BusinessService.getEffectiveWorkingHours(userId, targetDate);
+    const workingDay = effectiveWorkingHours.find(wh => wh.day.toLowerCase() === dayName);
+
+    if (!workingDay || !workingDay.isWorkingDay || !workingDay.startTime || !workingDay.endTime) {
+      // Check if business has set up working hours at all vs just closed on this day
+      if (businessProfile.settings.hasSetWorkingHours) {
+        throw new Error('BUSINESS_CLOSED_TODAY');
+      } else {
+        throw new Error('BUSINESS_NOT_OPEN_ON_DATE');
+      }
     }
 
     // Create time boundaries for the day
@@ -101,22 +121,22 @@ export class CalendarService {
     const slots: AvailableSlot[] = [];
     const slotDuration = (service.durationMinutes || 60) + bufferTimeMinutes; // Default to 60 minutes if not specified
     let currentTime = new Date(effectiveStart);
-    const db = require('../config/database').default;
     while (currentTime.getTime() + ((service.durationMinutes || 60) * 60 * 1000) <= endOfDay.getTime()) {
-      const slotEnd = new Date(currentTime.getTime() + ((service.durationMinutes || 60) * 60 * 1000));
+      const serviceEndTime = new Date(currentTime.getTime() + ((service.durationMinutes || 60) * 60 * 1000));
+      const slotOccupiedEndTime = new Date(currentTime.getTime() + (slotDuration * 60 * 1000)); // End of service + buffer
       let isAvailable = true;
       if (service.bookingType === 'fixed') {
-        // Check for overlap with busy times
+        // Check for overlap with busy times, considering the full occupied slot duration
         isAvailable = !busyTimes.some(busy => {
           const busyStart = new Date(busy.start!);
           const busyEnd = new Date(busy.end!);
-          return (currentTime < busyEnd && slotEnd > busyStart);
+          return (currentTime < busyEnd && slotOccupiedEndTime > busyStart);
         });
         // Also check DB for existing bookings
         if (isAvailable) {
           // Synchronous DB call for slot
           // eslint-disable-next-line no-await-in-loop
-          const result = await db.query(
+          const result = await pool.query(
             `SELECT COUNT(*) FROM bookings WHERE service_id = $1 AND start_time = $2 AND status = 'confirmed'`,
             [serviceId, currentTime.toISOString()]
           );
@@ -126,7 +146,7 @@ export class CalendarService {
       } else if (service.bookingType === 'flexible' && service.capacity) {
         // For flexible, check DB for number of bookings in this slot
         // eslint-disable-next-line no-await-in-loop
-        const result = await db.query(
+        const result = await pool.query(
           `SELECT COUNT(*) FROM bookings WHERE service_id = $1 AND start_time = $2 AND status = 'confirmed'`,
           [serviceId, currentTime.toISOString()]
         );
@@ -135,7 +155,7 @@ export class CalendarService {
       }
       slots.push({
         startTime: currentTime.toISOString(),
-        endTime: slotEnd.toISOString(),
+        endTime: serviceEndTime.toISOString(), // Use serviceEndTime here
         available: isAvailable
       });
       // Move to next slot (including buffer time)
@@ -153,15 +173,42 @@ export class CalendarService {
     if (!service) {
       throw new Error('Service not found');
     }
-    // Remove appointment-specific duration check
+
+    const businessProfile = await BusinessService.findByUserId(userId);
+    if (!businessProfile) {
+      throw new Error('Business profile not found');
+    }
+
+    // Check if working hours have been set up
+    if (!businessProfile.settings.hasSetWorkingHours) {
+      throw new Error('WORKING_HOURS_NOT_CONFIGURED');
+    }
+
+    const { bufferTimeMinutes } = businessProfile.settings;
+
     const startTime = new Date(slotStartTime);
-    const endTime = new Date(startTime.getTime() + ((service.durationMinutes || 60) * 60 * 1000)); // Default to 60 minutes if not specified
+    const serviceEndTime = new Date(startTime.getTime() + ((service.durationMinutes || 60) * 60 * 1000));
+    const slotOccupiedEndTime = new Date(startTime.getTime() + ((service.durationMinutes || 60) + bufferTimeMinutes) * 60 * 1000);
+
+    // Check booking window
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const bookingWindowEndDate = new Date(today.getTime() + ((service.bookingWindowDays || 365) * 24 * 60 * 60 * 1000));
+    if (startTime > bookingWindowEndDate) {
+      throw new Error('BOOKING_OUTSIDE_WINDOW');
+    }
+
+    // Check if business is paused on this date
+    const pausedWindows = await PauseService.getPauseWindows(userId, startTime.toISOString().split('T')[0]);
+    if (pausedWindows.length > 0) {
+      throw new Error('BOOKING_ON_PAUSED_DATE');
+    }
 
     // Double-check availability to prevent race conditions
     const freeBusyResponse = await calendar.freebusy.query({
       requestBody: {
         timeMin: startTime.toISOString(),
-        timeMax: endTime.toISOString(),
+        timeMax: slotOccupiedEndTime.toISOString(), // Use slotOccupiedEndTime for conflict check
         items: [{ id: 'primary' }]
       }
     });
@@ -170,7 +217,7 @@ export class CalendarService {
     const hasConflict = busyTimes.some(busy => {
       const busyStart = new Date(busy.start!);
       const busyEnd = new Date(busy.end!);
-      return (startTime < busyEnd && endTime > busyStart);
+      return (startTime < busyEnd && slotOccupiedEndTime > busyStart); // Use slotOccupiedEndTime
     });
 
     if (hasConflict) {
@@ -178,9 +225,8 @@ export class CalendarService {
     }
 
     // Check for existing bookings in DB for this slot
-    const db = require('../config/database').default;
     const query = `SELECT COUNT(*) FROM bookings WHERE service_id = $1 AND start_time = $2 AND status = 'confirmed'`;
-    const result = await db.query(query, [serviceId, startTime.toISOString()]);
+    const result = await pool.query(query, [serviceId, startTime.toISOString()]);
     const existingCount = parseInt(result.rows[0].count, 10);
     if (service.bookingType === 'fixed' && existingCount > 0) {
       throw new Error('Time slot is no longer available');
@@ -197,7 +243,7 @@ export class CalendarService {
         dateTime: startTime.toISOString(),
       },
       end: {
-        dateTime: endTime.toISOString(),
+        dateTime: serviceEndTime.toISOString(), // Use serviceEndTime for the event end time
       },
       attendees: customerEmail ? [{ email: customerEmail }] : [],
     };
@@ -210,7 +256,7 @@ export class CalendarService {
     return {
       eventId: response.data.id,
       startTime: startTime.toISOString(),
-      endTime: endTime.toISOString(),
+      endTime: serviceEndTime.toISOString(), // Use serviceEndTime
       service: service.title,
       customer: customerName,
       email: customerEmail

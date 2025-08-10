@@ -203,6 +203,28 @@ router.put('/:userId/settings', authenticateToken, async (req: AuthRequest, res)
       ...value
     };
 
+    // If working hours are being updated, handle the working hours history and flag
+    if (value.workingHours && value.workingHours.length > 0) {
+      const today = new Date().toISOString().split('T')[0]; // Today's date in YYYY-MM-DD format
+      
+      // Initialize workingHoursHistory if it doesn't exist
+      if (!updatedSettings.workingHoursHistory) {
+        updatedSettings.workingHoursHistory = [];
+      }
+      
+      // Add new entry to history
+      updatedSettings.workingHoursHistory.push({
+        effectiveFrom: today,
+        days: value.workingHours
+      });
+      
+      // Set the flag to indicate working hours have been configured
+      updatedSettings.hasSetWorkingHours = true;
+      
+      // Keep the old workingHours for backward compatibility
+      updatedSettings.workingHours = value.workingHours;
+    }
+
     const updatedProfile = await BusinessService.updateProfile(userId, { settings: updatedSettings });
     
     res.json(updatedProfile);

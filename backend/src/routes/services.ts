@@ -5,6 +5,39 @@ import Joi from 'joi';
 
 const router = express.Router();
 
+/**
+ * @openapi
+ * /api/services/booking-types:
+ *   get:
+ *     summary: Get available booking types
+ *     responses:
+ *       200:
+ *         description: List of available booking types
+ */
+router.get('/booking-types', async (req, res) => {
+  try {
+    const bookingTypes = [
+      {
+        value: 'fixed',
+        label: 'Fixed',
+        description: 'Only one customer can book a slot at a time (e.g., therapist, consultant)',
+        requiredFields: []
+      },
+      {
+        value: 'flexible',
+        label: 'Flexible',
+        description: 'Multiple customers can book the same slot, up to the specified capacity (e.g., group class, salon with staff)',
+        requiredFields: ['capacity']
+      }
+    ];
+
+    res.json(bookingTypes);
+  } catch (error) {
+    console.error('Get booking types error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Validation schemas
 const createServiceSchema = Joi.object({
   bookingType: Joi.string().valid('fixed', 'flexible').required(),
@@ -64,7 +97,7 @@ const updateServiceSchema = Joi.object({
 
 /**
  * @openapi
- * /api/{userId}/services:
+ * /api/services/{userId}:
  *   get:
  *     summary: Get all services for a user
  *     parameters:
@@ -77,7 +110,7 @@ const updateServiceSchema = Joi.object({
  *       200:
  *         description: List of services
  */
-router.get('/:userId/services', authenticateToken, async (req: AuthRequest, res) => {
+router.get('/:userId', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { userId } = req.params;
     
@@ -96,7 +129,7 @@ router.get('/:userId/services', authenticateToken, async (req: AuthRequest, res)
 
 /**
  * @openapi
- * /api/{userId}/services:
+ * /api/services/{userId}:
  *   post:
  *     summary: Create a new service
  *     parameters:
@@ -130,7 +163,7 @@ router.get('/:userId/services', authenticateToken, async (req: AuthRequest, res)
  *       201:
  *         description: Service created
  */
-router.post('/:userId/services', authenticateToken, async (req: AuthRequest, res) => {
+router.post('/:userId', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { userId } = req.params;
     
@@ -153,7 +186,7 @@ router.post('/:userId/services', authenticateToken, async (req: AuthRequest, res
 });
 
 // Update a service
-router.put('/:userId/services/:serviceId', authenticateToken, async (req: AuthRequest, res) => {
+router.put('/:userId/:serviceId', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { userId, serviceId } = req.params;
     
@@ -182,7 +215,7 @@ router.put('/:userId/services/:serviceId', authenticateToken, async (req: AuthRe
 });
 
 // Delete a service
-router.delete('/:userId/services/:serviceId', authenticateToken, async (req: AuthRequest, res) => {
+router.delete('/:userId/:serviceId', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { userId, serviceId } = req.params;
     
@@ -199,39 +232,6 @@ router.delete('/:userId/services/:serviceId', authenticateToken, async (req: Aut
     res.json({ message: 'Service deleted successfully' });
   } catch (error) {
     console.error('Delete service error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-/**
- * @openapi
- * /api/services/booking-types:
- *   get:
- *     summary: Get available booking types
- *     responses:
- *       200:
- *         description: List of available booking types
- */
-router.get('/services/booking-types', async (req, res) => {
-  try {
-    const bookingTypes = [
-      {
-        value: 'fixed',
-        label: 'Fixed',
-        description: 'Only one customer can book a slot at a time (e.g., therapist, consultant)',
-        requiredFields: []
-      },
-      {
-        value: 'flexible',
-        label: 'Flexible',
-        description: 'Multiple customers can book the same slot, up to the specified capacity (e.g., group class, salon with staff)',
-        requiredFields: ['capacity']
-      }
-    ];
-
-    res.json(bookingTypes);
-  } catch (error) {
-    console.error('Get booking types error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
