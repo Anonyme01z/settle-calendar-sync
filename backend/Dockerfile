@@ -17,6 +17,9 @@ COPY . .
 # Build TypeScript
 RUN npm run build
 
+# Ensure dist directory exists before copying swagger.js
+RUN mkdir -p /app/dist
+
 # Diagnostic: List build output
 RUN ls -la /app/dist && ls -la /app
 

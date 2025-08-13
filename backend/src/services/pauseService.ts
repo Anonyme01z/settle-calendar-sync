@@ -19,22 +19,25 @@ export class PauseService {
       throw new Error('Start date cannot be after end date.');
     }
 
+    // Validate against booking window
+    await this.validateBookingWindow(userId, start, end);
+
     // Check for existing confirmed bookings within the pause range
     const conflictQuery = `
-      SELECT id, user_id, service_id, slot_start_time, slot_end_time, customer_name, customer_email, status, created_at, updated_at
+      SELECT id, user_id, service_id, start_time, end_time, customer_name, customer_email, status, created_at, updated_at
       FROM bookings
       WHERE user_id = $1
         AND status = 'confirmed'
-        AND slot_start_time::date <= $3
-        AND slot_end_time::date >= $2;
+        AND start_time::date <= $3
+        AND end_time::date >= $2;
     `;
     const conflictResult = await pool.query(conflictQuery, [userId, startDate, endDate]);
     const conflictingBookings: Booking[] = conflictResult.rows.map(row => ({
       id: row.id,
       userId: row.user_id,
       serviceId: row.service_id,
-      slotStartTime: new Date(row.slot_start_time), // Ensure it's a Date object
-      slotEndTime: new Date(row.slot_end_time),     // Ensure it's a Date object
+      slotStartTime: new Date(row.start_time), // Ensure it's a Date object
+      slotEndTime: new Date(row.end_time),     // Ensure it's a Date object
       customerName: row.customer_name,
       customerEmail: row.customer_email,
       status: row.status,
@@ -72,6 +75,39 @@ export class PauseService {
     const insertResult = await pool.query(insertQuery, [id, userId, startDate, endDate, reason, createdBy]);
 
     return this.mapRowToPauseWindow(insertResult.rows[0]);
+  }
+
+  private static async validateBookingWindow(userId: string, startDate: Date, endDate: Date): Promise<void> {
+    // Get user's services to calculate max booking window
+    const servicesQuery = `
+      SELECT booking_window_days FROM services
+      WHERE user_id = $1 AND is_active = true;
+    `;
+    const servicesResult = await pool.query(servicesQuery, [userId]);
+    
+    let maxBookingWindowDays = 365; // Default
+    if (servicesResult.rows.length > 0) {
+      maxBookingWindowDays = Math.max(
+        ...servicesResult.rows.map(row => row.booking_window_days || 365)
+      );
+    }
+
+    // Calculate max allowed date
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const maxAllowedDate = new Date(today.getTime() + (maxBookingWindowDays * 24 * 60 * 60 * 1000));
+
+    // Check if requested dates are within booking window
+    if (startDate > maxAllowedDate || endDate > maxAllowedDate) {
+      throw new Error(`Off days cannot be set beyond your booking window (${maxBookingWindowDays} days from today). Please select dates between today and ${maxAllowedDate.toLocaleDateString()}.`);
+    }
+
+    // Check if dates are in the past (except today)
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    if (startDate < today) {
+      throw new Error('Off days cannot be set for past dates. Please select dates from today onwards.');
+    }
   }
 
   static async getPauseWindows(userId: string, date?: string): Promise<PauseWindow[]> {

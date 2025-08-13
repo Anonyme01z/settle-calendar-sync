@@ -4,8 +4,10 @@ import pool from '../config/database';
 import { BusinessService } from '../services/businessService';
 import { PauseService } from '../services/pauseService';
 import { ServiceService } from '../services/serviceService';
+import { EmailService } from '../services/emailService';
 import { WorkingDay, WorkingHoursEntry, Booking, BusinessSettings } from '../types';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { format } from 'date-fns';
 
 const router = express.Router();
 
@@ -75,12 +77,12 @@ router.put('/settings/working-hours', authenticateToken, async (req: AuthRequest
 
     // Conflict Check for existing bookings within the relevant date range
     const conflictQuery = `
-      SELECT id, user_id, service_id, slot_start_time, slot_end_time, customer_name, customer_email, status, created_at, updated_at
+      SELECT id, user_id, service_id, start_time, end_time, customer_name, customer_email, status, created_at, updated_at
       FROM bookings
       WHERE user_id = $1
         AND status = 'confirmed'
-        AND slot_start_time::date >= $2
-        AND slot_start_time::date <= $3;
+        AND start_time::date >= $2
+        AND start_time::date <= $3;
     `;
     const effectiveFromDateString = effectiveFromDate ? effectiveFromDate.toISOString().split('T')[0] : '';
     const maxBookingWindowEndDateString = maxBookingWindowEndDate ? maxBookingWindowEndDate.toISOString().split('T')[0] : '';
@@ -89,13 +91,13 @@ router.put('/settings/working-hours', authenticateToken, async (req: AuthRequest
       id: row.id,
       userId: row.user_id,
       serviceId: row.service_id,
-      slotStartTime: new Date(row.slot_start_time),
-      slotEndTime: new Date(row.slot_end_time),
-      customerName: row.customerName,
-      customerEmail: row.customerEmail,
+      slotStartTime: new Date(row.start_time),
+      slotEndTime: new Date(row.end_time),
+      customerName: row.customer_name,
+      customerEmail: row.customer_email,
       status: row.status,
-      createdAt: new Date(row.createdAt),
-      updatedAt: new Date(row.updatedAt)
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at)
     }));
 
     const conflictingBookings: Booking[] = [];
@@ -242,6 +244,307 @@ router.post('/pause-bookings', authenticateToken, async (req: AuthRequest, res: 
   } catch (err: any) {
     console.error('Error pausing bookings:', err);
     res.status(500).json({ error: err.message || 'Failed to pause bookings.' });
+  }
+});
+
+// Get off days/pause windows
+router.get('/off-days', authenticateToken, async (req: AuthRequest, res: any) => {
+  const { userId } = req;
+  
+  if (!userId) {
+    return res.status(401).json({ error: 'User ID not found in request' });
+  }
+
+  try {
+    const offDays = await PauseService.getPauseWindows(userId);
+    res.json(offDays);
+  } catch (err: any) {
+    console.error('Error fetching off days:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch off days.' });
+  }
+});
+
+// Delete off day/pause window
+router.delete('/off-days/:offDayId', authenticateToken, async (req: AuthRequest, res: any) => {
+  const { userId } = req;
+  const { offDayId } = req.params;
+  
+  if (!userId) {
+    return res.status(401).json({ error: 'User ID not found in request' });
+  }
+
+  if (!offDayId) {
+    return res.status(400).json({ error: 'Off day ID is required' });
+  }
+
+  try {
+    const deleteQuery = `
+      DELETE FROM pause_windows 
+      WHERE id = $1 AND user_id = $2
+      RETURNING id;
+    `;
+    const result = await pool.query(deleteQuery, [offDayId, userId]);
+    
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Off day not found or access denied.' });
+    }
+
+    res.json({ message: 'Off day deleted successfully.' });
+  } catch (err: any) {
+    console.error('Error deleting off day:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete off day.' });
+  }
+});
+
+// Get booking window info
+router.get('/booking-window-info', authenticateToken, async (req: AuthRequest, res: any) => {
+  const { userId } = req;
+  
+  if (!userId) {
+    return res.status(401).json({ error: 'User ID not found in request' });
+  }
+
+  try {
+    // Get user's services to calculate max booking window
+    const services = await ServiceService.findByUserId(userId);
+    let maxBookingWindowDays = 365; // Default
+    if (services && services.length > 0) {
+      maxBookingWindowDays = Math.max(
+        ...services.map(s => s.bookingWindowDays || 365)
+      );
+    }
+
+    // Calculate max allowed date
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const maxAllowedDate = new Date(today.getTime() + (maxBookingWindowDays * 24 * 60 * 60 * 1000));
+
+    res.json({
+      maxBookingWindowDays,
+      maxAllowedDate: maxAllowedDate.toISOString().split('T')[0], // YYYY-MM-DD format
+      today: today.toISOString().split('T')[0]
+    });
+  } catch (err: any) {
+    console.error('Error fetching booking window info:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch booking window info.' });
+  }
+});
+
+// Get all bookings for a business
+router.get('/bookings', authenticateToken, async (req: AuthRequest, res: any) => {
+  const { userId } = req;
+  const { status, limit = '50', offset = '0', startDate, endDate } = req.query;
+  
+  if (!userId) {
+    return res.status(401).json({ error: 'User ID not found in request' });
+  }
+
+  try {
+    let query = `
+      SELECT 
+        b.id,
+        b.user_id,
+        b.service_id,
+        b.start_time,
+        b.end_time,
+        b.customer_name,
+        b.customer_email,
+        b.customer_notes,
+        b.status,
+        b.created_at,
+        b.updated_at,
+        b.cancellation_reason,
+        b.cancelled_at,
+        s.name as service_name,
+        s.duration_minutes
+      FROM bookings b
+      LEFT JOIN services s ON b.service_id = s.id
+      WHERE b.user_id = $1
+    `;
+    
+    const queryParams: any[] = [userId];
+    let paramIndex = 2;
+    
+    // Add status filter
+    if (status && status !== 'all') {
+      query += ` AND b.status = $${paramIndex}`;
+      queryParams.push(status);
+      paramIndex++;
+    }
+    
+    // Add date range filters
+    if (startDate) {
+      query += ` AND b.start_time::date >= $${paramIndex}`;
+      queryParams.push(startDate);
+      paramIndex++;
+    }
+    
+    if (endDate) {
+      query += ` AND b.start_time::date <= $${paramIndex}`;
+      queryParams.push(endDate);
+      paramIndex++;
+    }
+    
+    // Order by start time descending (most recent first)
+    query += ` ORDER BY b.start_time DESC`;
+    
+    // Add pagination
+    query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    queryParams.push(parseInt(limit as string), parseInt(offset as string));
+    
+    const result = await pool.query(query, queryParams);
+    
+    const bookings = result.rows.map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      serviceId: row.service_id,
+      serviceName: row.service_name,
+      durationMinutes: row.duration_minutes,
+      startTime: row.start_time,
+      endTime: row.end_time,
+      customerName: row.customer_name,
+      customerEmail: row.customer_email,
+      customerNotes: row.customer_notes,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      cancellationReason: row.cancellation_reason,
+      cancelledAt: row.cancelled_at
+    }));
+    
+    // Get total count for pagination
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM bookings b
+      WHERE b.user_id = $1
+    `;
+    
+    const countParams: any[] = [userId];
+    let countParamIndex = 2;
+    
+    if (status && status !== 'all') {
+      countQuery += ` AND b.status = $${countParamIndex}`;
+      countParams.push(status);
+      countParamIndex++;
+    }
+    
+    if (startDate) {
+      countQuery += ` AND b.start_time::date >= $${countParamIndex}`;
+      countParams.push(startDate);
+      countParamIndex++;
+    }
+    
+    if (endDate) {
+      countQuery += ` AND b.start_time::date <= $${countParamIndex}`;
+      countParams.push(endDate);
+      countParamIndex++;
+    }
+    
+    const countResult = await pool.query(countQuery, countParams);
+    const total = parseInt(countResult.rows[0].total);
+    
+    res.json({
+      bookings,
+      pagination: {
+        total,
+        limit: parseInt(limit as string),
+        offset: parseInt(offset as string),
+        hasMore: (parseInt(offset as string) + parseInt(limit as string)) < total
+      }
+    });
+    
+  } catch (err: any) {
+    console.error('Error fetching bookings:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch bookings.' });
+  }
+});
+
+// Cancel a booking
+router.patch('/bookings/:bookingId/cancel', authenticateToken, async (req: AuthRequest, res: any) => {
+  const { userId } = req;
+  const { bookingId } = req.params;
+  const { reason } = req.body;
+  
+  if (!userId) {
+    return res.status(401).json({ error: 'User ID not found in request' });
+  }
+
+  if (!bookingId) {
+    return res.status(400).json({ error: 'Booking ID is required' });
+  }
+
+  try {
+    // First get the booking details for email
+    const bookingQuery = `
+      SELECT 
+        b.id,
+        b.user_id,
+        b.service_id,
+        b.start_time,
+        b.end_time,
+        b.customer_name,
+        b.customer_email,
+        b.customer_notes,
+        b.status,
+        s.name as service_name,
+        s.duration_minutes
+      FROM bookings b
+      LEFT JOIN services s ON b.service_id = s.id
+      WHERE b.id = $1 AND b.user_id = $2 AND b.status = 'confirmed'
+    `;
+    
+    const bookingResult = await pool.query(bookingQuery, [bookingId, userId]);
+    
+    if (bookingResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Booking not found or already cancelled.' });
+    }
+    
+    const booking = bookingResult.rows[0];
+    
+    // Update booking status
+    const cancelQuery = `
+      UPDATE bookings
+      SET status = 'cancelled',
+          cancellation_reason = $3,
+          cancelled_at = NOW(),
+          updated_at = NOW()
+      WHERE id = $1 AND user_id = $2
+      RETURNING id;
+    `;
+    
+    await pool.query(cancelQuery, [bookingId, userId, reason || 'Cancelled by business']);
+    
+    // Get business details for email
+    const business = await BusinessService.findByUserId(userId);
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found.' });
+    }
+    
+    // Send cancellation emails (async)
+    const bookingDateTime = new Date(booking.start_time);
+    const bookingTime = format(bookingDateTime, 'h:mm a');
+    
+    EmailService.sendBookingCancellation({
+      customerName: booking.customer_name,
+      customerEmail: booking.customer_email,
+      businessName: business.name,
+      businessEmail: business.email,
+      serviceName: booking.service_name,
+      bookingDate: bookingDateTime,
+      bookingTime: bookingTime,
+      duration: booking.duration_minutes,
+      customerNotes: booking.customer_notes,
+      bookingId: booking.id,
+      cancellationReason: reason || 'Cancelled by business'
+    }).catch(error => {
+      console.error('Failed to send cancellation emails:', error);
+    });
+    
+    res.json({ message: 'Booking cancelled successfully.' });
+    
+  } catch (err: any) {
+    console.error('Error cancelling booking:', err);
+    res.status(500).json({ error: err.message || 'Failed to cancel booking.' });
   }
 });
 

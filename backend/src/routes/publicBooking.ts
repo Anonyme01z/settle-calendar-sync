@@ -2,7 +2,9 @@ import express from 'express';
 import { BusinessService } from '../services/businessService';
 import { ServiceService } from '../services/serviceService';
 import { CalendarService } from '../services/calendarService';
+import { EmailService } from '../services/emailService';
 import Joi from 'joi';
+import { format } from 'date-fns';
 
 const router = express.Router();
 
@@ -107,14 +109,40 @@ router.post('/business/:handle/services/:serviceId/book', async (req, res) => {
   if (error) return res.status(400).json({ error: error.details[0].message });
   const business = await BusinessService.findByHandle(handle);
   if (!business) return res.status(404).json({ error: 'Business not found' });
+  
   try {
+    // Get service details for email
+    const service = await ServiceService.findById(serviceId, business.userId);
+    if (!service) return res.status(404).json({ error: 'Service not found' });
+    
     const booking = await CalendarService.createBooking(
       business.userId,
       serviceId,
       value.slotStartTime,
       value.customerName,
-      value.customerEmail
+      value.customerEmail,
+      value.customerNotes
     );
+    
+    // Send email notifications (async, don't wait)
+    const bookingDateTime = new Date(value.slotStartTime);
+    const bookingTime = format(bookingDateTime, 'h:mm a');
+    
+    EmailService.sendBookingConfirmation({
+      customerName: value.customerName,
+      customerEmail: value.customerEmail,
+      businessName: business.name,
+      businessEmail: business.email,
+      serviceName: service.name,
+      bookingDate: bookingDateTime,
+      bookingTime: bookingTime,
+      duration: service.durationMinutes,
+      customerNotes: value.customerNotes,
+      bookingId: booking.eventId || booking.id
+    }).catch(error => {
+      console.error('Failed to send booking confirmation emails:', error);
+    });
+    
     res.json({ success: true, bookingId: booking.eventId, message: 'Booking confirmed!' });
   } catch (err: any) {
     if (err.message === 'GOOGLE_CALENDAR_NOT_CONNECTED') {
