@@ -85,6 +85,7 @@ export interface AvailableSlot {
   startTime: string;
   endTime: string;
   available: boolean;
+  spacesLeft?: number; // For flexible services: how many bookings are still available for this slot
 }
 
 export interface Booking {

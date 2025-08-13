@@ -355,7 +355,7 @@ router.get('/bookings', authenticateToken, async (req: AuthRequest, res: any) =>
         b.updated_at,
         b.cancellation_reason,
         b.cancelled_at,
-        s.name as service_name,
+        s.title as service_name,
         s.duration_minutes
       FROM bookings b
       LEFT JOIN services s ON b.service_id = s.id
@@ -486,7 +486,7 @@ router.patch('/bookings/:bookingId/cancel', authenticateToken, async (req: AuthR
         b.customer_email,
         b.customer_notes,
         b.status,
-        s.name as service_name,
+        s.title as service_name,
         s.duration_minutes
       FROM bookings b
       LEFT JOIN services s ON b.service_id = s.id

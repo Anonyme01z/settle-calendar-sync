@@ -133,7 +133,7 @@ router.post('/business/:handle/services/:serviceId/book', async (req, res) => {
       customerEmail: value.customerEmail,
       businessName: business.name,
       businessEmail: business.email,
-      serviceName: service.name,
+      serviceName: service.title,
       bookingDate: bookingDateTime,
       bookingTime: bookingTime,
       duration: service.durationMinutes,

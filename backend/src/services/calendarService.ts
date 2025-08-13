@@ -60,6 +60,15 @@ export class CalendarService {
       throw new Error('Service not found');
     }
 
+    // Debug logging
+    console.log('Service details:', {
+      id: service.id,
+      title: service.title,
+      bookingType: service.bookingType,
+      capacity: service.capacity,
+      durationMinutes: service.durationMinutes
+    });
+
     // Get business settings
     const { settings } = businessProfile;
     const { bufferTimeMinutes, minBookingNoticeHours, timeZone } = settings;
@@ -121,7 +130,8 @@ export class CalendarService {
     const slots: AvailableSlot[] = [];
     const slotDuration = (service.durationMinutes || 60) + bufferTimeMinutes; // Default to 60 minutes if not specified
     let currentTime = new Date(effectiveStart);
-    while (currentTime.getTime() + ((service.durationMinutes || 60) * 60 * 1000) <= endOfDay.getTime()) {
+    // Ensure the full occupied slot (service + buffer) fits within working hours
+    while (currentTime.getTime() + (slotDuration * 60 * 1000) <= endOfDay.getTime()) {
       const serviceEndTime = new Date(currentTime.getTime() + ((service.durationMinutes || 60) * 60 * 1000));
       const slotOccupiedEndTime = new Date(currentTime.getTime() + (slotDuration * 60 * 1000)); // End of service + buffer
       let isAvailable = true;
@@ -143,6 +153,15 @@ export class CalendarService {
           const existingCount = parseInt(result.rows[0].count, 10);
           if (existingCount > 0) isAvailable = false;
         }
+        
+        // Only add fixed service slots if they're available
+        if (isAvailable) {
+          slots.push({
+            startTime: currentTime.toISOString(),
+            endTime: serviceEndTime.toISOString(),
+            available: true
+          });
+        }
       } else if (service.bookingType === 'flexible' && service.capacity) {
         // For flexible, check DB for number of bookings in this slot
         // eslint-disable-next-line no-await-in-loop
@@ -151,13 +170,19 @@ export class CalendarService {
           [serviceId, currentTime.toISOString()]
         );
         const existingCount = parseInt(result.rows[0].count, 10);
-        if (existingCount >= service.capacity) isAvailable = false;
+        const spacesLeft = Math.max(service.capacity - existingCount, 0);
+        
+        // Only add flexible service slots if there are spaces left
+        if (spacesLeft > 0) {
+          slots.push({
+            startTime: currentTime.toISOString(),
+            endTime: serviceEndTime.toISOString(),
+            available: true,
+            spacesLeft
+          });
+        }
       }
-      slots.push({
-        startTime: currentTime.toISOString(),
-        endTime: serviceEndTime.toISOString(), // Use serviceEndTime here
-        available: isAvailable
-      });
+      
       // Move to next slot (including buffer time)
       currentTime = new Date(currentTime.getTime() + (slotDuration * 60 * 1000));
     }
@@ -263,3 +288,4 @@ export class CalendarService {
     };
   }
 }
+
