@@ -5,6 +5,7 @@ import { ServiceService } from './serviceService';
 import { PauseService } from './pauseService'; // Import PauseService
 import { AvailableSlot, WorkingDay } from '../types';
 import pool from '../config/database';
+import { v4 as uuidv4 } from 'uuid';
 
 export class CalendarService {
   static async refreshAccessTokenIfNeeded(userId: string): Promise<string> {
@@ -278,7 +279,26 @@ export class CalendarService {
       requestBody: event,
     });
 
+    // Persist booking in our database
+    const bookingId = uuidv4();
+    await pool.query(
+      `INSERT INTO bookings (
+         id, user_id, service_id, start_time, end_time, customer_name, customer_email, google_calendar_event_id, status, created_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'confirmed', NOW(), NOW())`,
+      [
+        bookingId,
+        userId,
+        serviceId,
+        startTime.toISOString(),
+        serviceEndTime.toISOString(),
+        customerName || null,
+        customerEmail || null,
+        response.data.id || null
+      ]
+    );
+
     return {
+      id: bookingId,
       eventId: response.data.id,
       startTime: startTime.toISOString(),
       endTime: serviceEndTime.toISOString(), // Use serviceEndTime
