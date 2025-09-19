@@ -1,3 +1,4 @@
+// Service: Pause windows (off days) and conflict handling
 import pool from '../config/database';
 import { v4 as uuidv4 } from 'uuid';
 import { PauseWindow, Booking } from '../types';

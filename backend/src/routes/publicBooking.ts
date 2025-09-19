@@ -1,3 +1,4 @@
+// Route: Public booking flows (no auth) for business handles
 import express from 'express';
 import { BusinessService } from '../services/businessService';
 import { ServiceService } from '../services/serviceService';

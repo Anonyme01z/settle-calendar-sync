@@ -1,3 +1,4 @@
+// Route: Services CRUD and booking types
 import express from 'express';
 import { ServiceService } from '../services/serviceService';
 import { AuthRequest, authenticateToken } from '../middleware/auth';

@@ -1,3 +1,4 @@
+// Service: Business profile operations and settings management
 import pool from '../config/database';
 import { v4 as uuidv4 } from 'uuid';
 import { BusinessProfile, BusinessSettings, WorkingDay, WorkingHoursEntry } from '../types';

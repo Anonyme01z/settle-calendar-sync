@@ -1,3 +1,4 @@
+// Route: Public feedback endpoint (rate limited)
 import express from 'express';
 import Joi from 'joi';
 import rateLimit from 'express-rate-limit';

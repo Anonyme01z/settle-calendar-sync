@@ -1,4 +1,4 @@
-
+// Service: User accounts, password hashes, and Google token storage
 import pool from '../config/database';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';

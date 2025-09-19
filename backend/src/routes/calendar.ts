@@ -1,3 +1,4 @@
+// Route: Calendar availability, booking creation, and cancellation
 import express from 'express';
 import { CalendarService } from '../services/calendarService';
 import { AuthRequest, authenticateToken } from '../middleware/auth';

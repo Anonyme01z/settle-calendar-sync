@@ -1,3 +1,4 @@
+// Route: Business profile and settings (including avatar uploads)
 import express from 'express';
 import { BusinessService } from '../services/businessService';
 import { AuthRequest, authenticateToken } from '../middleware/auth';

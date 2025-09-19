@@ -1,3 +1,4 @@
+// Service: Email notifications (booking confirmation/cancellation, password reset)
 import { format } from 'date-fns';
 import * as Brevo from '@getbrevo/brevo';
 

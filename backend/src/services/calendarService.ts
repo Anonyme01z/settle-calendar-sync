@@ -1,3 +1,4 @@
+// Service: Calendar logic (availability, booking create/cancel, token refresh)
 import { calendar, oauth2Client } from '../config/google';
 import { UserService } from './userService';
 import { BusinessService } from './businessService';

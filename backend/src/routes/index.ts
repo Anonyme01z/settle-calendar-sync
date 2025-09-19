@@ -1,3 +1,4 @@
+// Route: Root API router (public booking + feedback subroutes)
 import express from 'express';
 const router = express.Router();
 import publicBookingRouter from './publicBooking';

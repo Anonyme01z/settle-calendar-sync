@@ -1,3 +1,4 @@
+// Route: Password reset (request, verify, reset) with rate limiting
 import express from 'express';
 import { UserService } from '../services/userService';
 import { EmailService } from '../services/emailService';

@@ -1,3 +1,4 @@
+// Route: Authentication (register, login, Google OAuth)
 import express from 'express';
 import { UserService } from '../services/userService';
 import { BusinessService } from '../services/businessService';

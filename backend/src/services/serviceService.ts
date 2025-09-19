@@ -1,3 +1,4 @@
+// Service: Service CRUD and mapping between DB and API shape
 import pool from '../config/database';
 import { v4 as uuidv4 } from 'uuid';
 import { Service } from '../types';
