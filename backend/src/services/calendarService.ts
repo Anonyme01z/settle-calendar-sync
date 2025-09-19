@@ -3,9 +3,10 @@ import { UserService } from './userService';
 import { BusinessService } from './businessService';
 import { ServiceService } from './serviceService';
 import { PauseService } from './pauseService'; // Import PauseService
-import { AvailableSlot, WorkingDay } from '../types';
+import { AvailableSlot } from '../types';
 import pool from '../config/database';
 import { v4 as uuidv4 } from 'uuid';
+import { EmailService } from './emailService';
 
 export class CalendarService {
   static async refreshAccessTokenIfNeeded(userId: string): Promise<string> {
@@ -297,6 +298,24 @@ export class CalendarService {
       ]
     );
 
+    // Fire-and-forget booking confirmation emails
+    try {
+      await EmailService.sendBookingConfirmation({
+        customerName: customerName || 'Customer',
+        customerEmail: customerEmail || businessProfile.email,
+        businessName: businessProfile.name,
+        businessEmail: businessProfile.email,
+        serviceName: service.title,
+        bookingDate: startTime,
+        bookingTime: startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        duration: service.durationMinutes || 60,
+        customerNotes: undefined,
+        bookingId
+      });
+    } catch (e) {
+      console.error('Error sending booking confirmation emails:', e);
+    }
+
     return {
       id: bookingId,
       eventId: response.data.id,
@@ -306,6 +325,73 @@ export class CalendarService {
       customer: customerName,
       email: customerEmail
     };
+  }
+
+  static async cancelBooking(userId: string, bookingId: string, reason?: string) {
+    // Ensure the user owns the booking
+    const bookingRes = await pool.query(
+      `SELECT * FROM bookings WHERE id = $1 AND user_id = $2`,
+      [bookingId, userId]
+    );
+    if (bookingRes.rows.length === 0) {
+      throw new Error('Booking not found');
+    }
+    const booking = bookingRes.rows[0];
+
+    // Fetch related data for email
+    const service = await ServiceService.findById(booking.service_id, userId);
+    const businessProfile = await BusinessService.findByUserId(userId);
+    if (!service || !businessProfile) {
+      throw new Error('Related records not found');
+    }
+
+    // Delete Google Calendar event if exists
+    try {
+      if (booking.google_calendar_event_id) {
+        const accessToken = await this.refreshAccessTokenIfNeeded(userId);
+        oauth2Client.setCredentials({ access_token: accessToken });
+        await calendar.events.delete({ calendarId: 'primary', eventId: booking.google_calendar_event_id });
+      }
+    } catch (e) {
+      console.error('Failed to delete Google Calendar event for cancellation:', e);
+    }
+
+    // Update booking status (and optionally reason if column exists)
+    try {
+      await pool.query(
+        `UPDATE bookings SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+        [bookingId]
+      );
+      // If you have a cancellation_reason column, uncomment the following and remove the previous query:
+      // await pool.query(
+      //   `UPDATE bookings SET status = 'cancelled', cancellation_reason = $2, updated_at = NOW() WHERE id = $1`,
+      //   [bookingId, reason || null]
+      // );
+    } catch (e) {
+      console.error('Failed to update booking status to cancelled:', e);
+      throw e;
+    }
+
+    // Send cancellation emails (best-effort)
+    try {
+      const startTime = new Date(booking.start_time);
+      await EmailService.sendBookingCancellation({
+        customerName: booking.customer_name || 'Customer',
+        customerEmail: booking.customer_email || businessProfile.email,
+        businessName: businessProfile.name,
+        businessEmail: businessProfile.email,
+        serviceName: service.title,
+        bookingDate: startTime,
+        bookingTime: startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        duration: service.durationMinutes || 60,
+        bookingId: booking.id,
+        cancellationReason: reason
+      } as any);
+    } catch (e) {
+      console.error('Error sending booking cancellation emails:', e);
+    }
+
+    return { success: true };
   }
 }
 

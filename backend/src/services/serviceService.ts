@@ -9,6 +9,7 @@ export class ServiceService {
       bookingType: 'fixed' | 'flexible';
       title: string;
       description: string;
+      durationMinutes: number;
       location: string;
       locationType: 'online' | 'offline';
       meetingLink?: string;
@@ -25,11 +26,11 @@ export class ServiceService {
       const id = uuidv4();
       const query = `
         INSERT INTO services (
-            id, user_id, booking_type, title, description, location, location_type, 
+            id, user_id, booking_type, title, description, duration_minutes, location, location_type, 
             meeting_link, address, price, deposit_percentage, currency, is_active, customer_notes_enabled,
             capacity, created_at, updated_at
         )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
         RETURNING *
       `;
       const result = await pool.query(query, [
@@ -38,6 +39,7 @@ export class ServiceService {
         data.bookingType,
         data.title,
         data.description,
+        data.durationMinutes,
         data.location,
         data.locationType,
         data.meetingLink ?? null,

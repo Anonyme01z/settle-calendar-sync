@@ -12,6 +12,7 @@ import businessRoutes from './routes/business';
 import serviceRoutes from './routes/services';
 import calendarRoutes from './routes/calendar';
 import adminRoutes from './routes/admin'; // Import new admin routes
+import passwordResetRoutes from './routes/password-reset';
 import apiRoutes from './routes';
 
 dotenv.config();
@@ -50,6 +51,7 @@ app.get('/api/version', (req, res) => {
 
 // API routes
 app.use('/api/auth', authRoutes);
+app.use('/api/auth', passwordResetRoutes);
 app.use('/api/business', businessRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/calendar', calendarRoutes);

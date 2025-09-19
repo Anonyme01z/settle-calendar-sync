@@ -1,5 +1,5 @@
-import nodemailer from 'nodemailer';
 import { format } from 'date-fns';
+import * as Brevo from '@getbrevo/brevo';
 
 interface BookingEmailData {
   customerName: string;
@@ -15,15 +15,51 @@ interface BookingEmailData {
 }
 
 export class EmailService {
-  private static transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: false, // true for 465, false for other ports
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASSWORD,
-    },
-  });
+  private static getFrom() {
+    const email = process.env.MAIL_FROM || process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+    const name = process.env.MAIL_FROM_NAME || 'Settle';
+    if (!email) {
+      console.warn('MAIL_FROM is not set. Please configure MAIL_FROM in environment.');
+    }
+    return { email: email as string, name };
+  }
+
+  private static ensureInitialized() {
+    const key = process.env.BREVO_API_KEY;
+    if (!key) {
+      console.warn('BREVO_API_KEY is not set. Emails will fail to send.');
+    }
+  }
+
+  private static async send(params: { to: string; subject: string; html: string; text?: string; replyTo?: string; category?: string }) {
+    this.ensureInitialized();
+    const apiKey = process.env.BREVO_API_KEY;
+    if (!apiKey) {
+      // Skip sending if not configured
+      return;
+    }
+    const { to, subject, html, text, replyTo, category } = params;
+    const from = this.getFrom();
+    const tags: string[] = [];
+    if (process.env.MAIL_TAG_PREFIX) tags.push(process.env.MAIL_TAG_PREFIX);
+    if (category) tags.push(category);
+
+    const defaultClient = Brevo.ApiClient.instance;
+    const apiKeyAuth = defaultClient.authentications['api-key'];
+    apiKeyAuth.apiKey = apiKey;
+    const tranEmailApi = new Brevo.TransactionalEmailsApi();
+
+    const sendSmtpEmail = new Brevo.SendSmtpEmail();
+    sendSmtpEmail.sender = { email: from.email, name: from.name };
+    sendSmtpEmail.to = [{ email: to }];
+    if (replyTo) sendSmtpEmail.replyTo = { email: replyTo } as any;
+    sendSmtpEmail.subject = subject;
+    sendSmtpEmail.htmlContent = html;
+    sendSmtpEmail.textContent = text || this.stripHtml(html);
+    if (tags.length) (sendSmtpEmail as any).tags = tags;
+
+    await tranEmailApi.sendTransacEmail(sendSmtpEmail);
+  }
 
   static async sendBookingConfirmation(data: BookingEmailData): Promise<void> {
     const { customerEmail, businessEmail, customerName, businessName, serviceName, bookingDate, bookingTime, duration, customerNotes, bookingId } = data;
@@ -60,27 +96,34 @@ export class EmailService {
 
     try {
       // Send email to customer
-      await this.transporter.sendMail({
-        from: process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER,
-        to: customerEmail,
-        subject: customerSubject,
-        html: customerHtml,
-        text: this.stripHtml(customerHtml) // Fallback text version
-      });
+      await this.send({ to: customerEmail, subject: customerSubject, html: customerHtml, category: 'booking-confirmation' });
 
       // Send email to business
-      await this.transporter.sendMail({
-        from: process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER,
-        to: businessEmail,
-        subject: businessSubject,
-        html: businessHtml,
-        text: this.stripHtml(businessHtml) // Fallback text version
-      });
+      await this.send({ to: businessEmail, subject: businessSubject, html: businessHtml, category: 'booking-notification' });
 
       console.log(`Booking confirmation emails sent for booking ${bookingId}`);
     } catch (error) {
       console.error('Error sending booking confirmation emails:', error);
       // Don't throw error to prevent booking failure due to email issues
+    }
+  }
+
+  static async sendPasswordResetEmail(email: string, code: string): Promise<void> {
+    const subject = 'Your Settle password reset code';
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <h2>Password Reset Request</h2>
+        <p>Use the following one-time code to reset your password. This code expires in 10 minutes.</p>
+        <div style="font-size: 32px; font-weight: bold; letter-spacing: 4px; background:#f5f5f5; padding: 12px 16px; display:inline-block; border-radius:8px;">
+          ${code}
+        </div>
+        <p style="margin-top: 16px; color:#555;">If you did not request this, you can safely ignore this email.</p>
+      </div>
+    `;
+    try {
+      await this.send({ to: email, subject, html, category: 'password-reset' });
+    } catch (error) {
+      console.error('Error sending password reset email:', error);
     }
   }
 
@@ -119,22 +162,10 @@ export class EmailService {
 
     try {
       // Send email to customer
-      await this.transporter.sendMail({
-        from: process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER,
-        to: customerEmail,
-        subject: customerSubject,
-        html: customerHtml,
-        text: this.stripHtml(customerHtml)
-      });
+      await this.send({ to: customerEmail, subject: customerSubject, html: customerHtml, category: 'booking-cancellation' });
 
       // Send email to business
-      await this.transporter.sendMail({
-        from: process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER,
-        to: businessEmail,
-        subject: businessSubject,
-        html: businessHtml,
-        text: this.stripHtml(businessHtml)
-      });
+      await this.send({ to: businessEmail, subject: businessSubject, html: businessHtml, category: 'booking-cancellation' });
 
       console.log(`Booking cancellation emails sent for booking ${bookingId}`);
     } catch (error) {
@@ -428,6 +459,25 @@ export class EmailService {
 </html>`;
   }
 
+  static async sendFeedbackNotification(params: { name: string; email: string; message: string }): Promise<void> {
+    const to = process.env.MAIL_FEEDBACK_TO || process.env.MAIL_FROM || 'tech@settle.com';
+    const subject = `New Feedback from ${params.name}`;
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <h2>New Feedback Received</h2>
+        <p><strong>Name:</strong> ${this.escapeHtml(params.name)}</p>
+        <p><strong>Email:</strong> ${this.escapeHtml(params.email)}</p>
+        <p><strong>Message:</strong></p>
+        <div style="white-space: pre-wrap; background:#f5f5f5; padding:12px; border-radius:8px;">${this.escapeHtml(params.message)}</div>
+      </div>
+    `;
+    try {
+      await this.send({ to, subject, html, replyTo: params.email, category: 'feedback' });
+    } catch (error) {
+      console.error('Error sending feedback notification:', error);
+    }
+  }
+
   private static stripHtml(html: string): string {
     return html
       .replace(/<[^>]*>/g, '')
@@ -437,5 +487,14 @@ export class EmailService {
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
       .trim();
+  }
+
+  private static escapeHtml(input: string): string {
+    return input
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 }

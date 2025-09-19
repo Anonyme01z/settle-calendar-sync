@@ -19,7 +19,7 @@ export class PauseService {
       throw new Error('Start date cannot be after end date.');
     }
 
-    // Validate against booking window
+    // Validate against booking window (business timezone aware)
     await this.validateBookingWindow(userId, start, end);
 
     // Check for existing confirmed bookings within the pause range
@@ -78,7 +78,7 @@ export class PauseService {
   }
 
   private static async validateBookingWindow(userId: string, startDate: Date, endDate: Date): Promise<void> {
-    // Get user's services to calculate max booking window
+    // 1) Determine max booking window days from active services
     const servicesQuery = `
       SELECT booking_window_days FROM services
       WHERE user_id = $1 AND is_active = true;
@@ -88,24 +88,30 @@ export class PauseService {
     let maxBookingWindowDays = 365; // Default
     if (servicesResult.rows.length > 0) {
       maxBookingWindowDays = Math.max(
-        ...servicesResult.rows.map(row => row.booking_window_days || 365)
+        ...servicesResult.rows.map((row: any) => row.booking_window_days || 365)
       );
     }
 
-    // Calculate max allowed date
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const maxAllowedDate = new Date(today.getTime() + (maxBookingWindowDays * 24 * 60 * 60 * 1000));
+    // 2) Fetch business timezone
+    const { BusinessService } = await import('./businessService');
+    const business = await BusinessService.findByUserId(userId);
+    const timeZone = business?.settings?.timeZone || 'UTC';
 
-    // Check if requested dates are within booking window
-    if (startDate > maxAllowedDate || endDate > maxAllowedDate) {
-      throw new Error(`Off days cannot be set beyond your booking window (${maxBookingWindowDays} days from today). Please select dates between today and ${maxAllowedDate.toLocaleDateString()}.`);
+    // 3) Compute business-TZ aware boundaries as YYYY-MM-DD strings
+    const { getTodayStrTZ, addDaysStr } = await import('../utils/dateTz');
+    const todayStr = getTodayStrTZ(timeZone);
+    const maxAllowedDateStr = addDaysStr(todayStr, maxBookingWindowDays);
+
+    // Convert requested dates to YYYY-MM-DD strings (the inputs were date-only ISO, constructed as UTC dates)
+    const startStr = startDate.toISOString().split('T')[0];
+    const endStr = endDate.toISOString().split('T')[0];
+
+    // 4) Check window and past-date constraints via string comparisons
+    if (startStr > maxAllowedDateStr || endStr > maxAllowedDateStr) {
+      throw new Error(`Off days cannot be set beyond your booking window (${maxBookingWindowDays} days from today). Please select dates between ${todayStr} and ${maxAllowedDateStr}.`);
     }
 
-    // Check if dates are in the past (except today)
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
-    if (startDate < today) {
+    if (startStr < todayStr) {
       throw new Error('Off days cannot be set for past dates. Please select dates from today onwards.');
     }
   }

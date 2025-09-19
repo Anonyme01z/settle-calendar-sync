@@ -2,6 +2,7 @@ import express from 'express';
 import { CalendarService } from '../services/calendarService';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 import Joi from 'joi';
+import pool from '../config/database';
 
 const router = express.Router();
 
@@ -140,6 +141,38 @@ router.post('/:userId/book', authenticateToken, async (req: AuthRequest, res) =>
       if (error.message.includes('tokens')) {
         return res.status(401).json({ error: 'Google Calendar not connected' });
       }
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Cancel booking
+const cancelSchema = Joi.object({
+  bookingId: Joi.string().required(),
+  reason: Joi.string().max(500).allow('', null),
+});
+
+router.post('/:userId/cancel', authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const { userId } = req.params;
+    if (!req.userId || req.userId !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { error, value } = cancelSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const { bookingId, reason } = value;
+
+    const result = await CalendarService.cancelBooking(userId, bookingId, reason || undefined);
+
+    res.json({ message: 'Booking cancelled successfully', ...result });
+  } catch (err) {
+    console.error('Cancel booking error:', err);
+    if (err instanceof Error && err.message.includes('not found')) {
+      return res.status(404).json({ error: 'Booking not found' });
     }
     res.status(500).json({ error: 'Internal server error' });
   }

@@ -43,6 +43,7 @@ const createServiceSchema = Joi.object({
   bookingType: Joi.string().valid('fixed', 'flexible').required(),
   title: Joi.string().required(),
   description: Joi.string().required(),
+  durationMinutes: Joi.number().integer().min(1).required(),
   location: Joi.string().required(),
   locationType: Joi.string().valid('online', 'offline').required(),
   meetingLink: Joi.string().uri().when('locationType', {
@@ -71,6 +72,7 @@ const updateServiceSchema = Joi.object({
   bookingType: Joi.string().valid('fixed', 'flexible'),
   title: Joi.string(),
   description: Joi.string(),
+  durationMinutes: Joi.number().integer().min(1),
   location: Joi.string(),
   locationType: Joi.string().valid('online', 'offline'),
   meetingLink: Joi.string().uri().when('locationType', {
