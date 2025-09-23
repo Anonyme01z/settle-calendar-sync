@@ -19,6 +19,7 @@
   "license": "MIT",
   "dependencies": {
     "@getbrevo/brevo": "^2.5.0",
+    "@sendgrid/mail": "^8.1.6",
     "@types/nodemailer": "^6.4.17",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",

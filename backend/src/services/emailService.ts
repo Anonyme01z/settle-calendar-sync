@@ -1,6 +1,6 @@
 // Service: Email notifications (booking confirmation/cancellation, password reset)
 import { format } from 'date-fns';
-import * as Brevo from '@getbrevo/brevo';
+import sgMail from '@sendgrid/mail';
 
 interface BookingEmailData {
   customerName: string;
@@ -25,41 +25,48 @@ export class EmailService {
     return { email: email as string, name };
   }
 
+  private static initialized = false;
+
   private static ensureInitialized() {
-    const key = process.env.BREVO_API_KEY;
-    if (!key) {
-      console.warn('BREVO_API_KEY is not set. Emails will fail to send.');
+    if (!EmailService.initialized) {
+      const key = process.env.SENDGRID_API_KEY;
+      if (!key) {
+        console.warn('SENDGRID_API_KEY is not set. Emails will fail to send.');
+        return false;
+      }
+      // Make sure the API key is properly formatted
+      const apiKey = key.trim();
+      sgMail.setApiKey(apiKey);
+      EmailService.initialized = true;
+      console.log('SendGrid initialized successfully');
     }
+    return true;
   }
 
   private static async send(params: { to: string; subject: string; html: string; text?: string; replyTo?: string; category?: string }) {
-    this.ensureInitialized();
-    const apiKey = process.env.BREVO_API_KEY;
-    if (!apiKey) {
+    if (!this.ensureInitialized()) {
       // Skip sending if not configured
       return;
     }
+    
     const { to, subject, html, text, replyTo, category } = params;
     const from = this.getFrom();
-    const tags: string[] = [];
-    if (process.env.MAIL_TAG_PREFIX) tags.push(process.env.MAIL_TAG_PREFIX);
-    if (category) tags.push(category);
-
-    const defaultClient = Brevo.ApiClient.instance;
-    const apiKeyAuth = defaultClient.authentications['api-key'];
-    apiKeyAuth.apiKey = apiKey;
-    const tranEmailApi = new Brevo.TransactionalEmailsApi();
-
-    const sendSmtpEmail = new Brevo.SendSmtpEmail();
-    sendSmtpEmail.sender = { email: from.email, name: from.name };
-    sendSmtpEmail.to = [{ email: to }];
-    if (replyTo) sendSmtpEmail.replyTo = { email: replyTo } as any;
-    sendSmtpEmail.subject = subject;
-    sendSmtpEmail.htmlContent = html;
-    sendSmtpEmail.textContent = text || this.stripHtml(html);
-    if (tags.length) (sendSmtpEmail as any).tags = tags;
-
-    await tranEmailApi.sendTransacEmail(sendSmtpEmail);
+    
+    const msg: any = {
+      to,
+      from: { email: from.email, name: from.name },
+      subject,
+      html,
+      text: text || this.stripHtml(html),
+      replyTo: replyTo,
+      categories: [] as string[]
+    };
+    
+    // Add categories if available
+    if (process.env.MAIL_TAG_PREFIX) msg.categories.push(process.env.MAIL_TAG_PREFIX);
+    if (category) msg.categories.push(category);
+    
+    await sgMail.send(msg);
   }
 
   static async sendBookingConfirmation(data: BookingEmailData): Promise<void> {
