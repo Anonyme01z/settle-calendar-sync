@@ -121,8 +121,7 @@ router.post('/business/:handle/services/:serviceId/book', async (req, res) => {
       serviceId,
       value.slotStartTime,
       value.customerName,
-      value.customerEmail,
-      value.customerNotes
+      value.customerEmail
     );
     
     // Send email notifications (async, don't wait)
@@ -137,7 +136,7 @@ router.post('/business/:handle/services/:serviceId/book', async (req, res) => {
       serviceName: service.title,
       bookingDate: bookingDateTime,
       bookingTime: bookingTime,
-      duration: service.durationMinutes,
+      duration: service.durationMinutes || 60,
       customerNotes: value.customerNotes,
       bookingId: booking.eventId || booking.id
     }).catch(error => {

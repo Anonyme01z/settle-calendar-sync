@@ -1,4 +1,4 @@
-// Service: Email notifications (booking confirmation/cancellation, password reset)
+// Service: Email notifications (booking confirmation/cancellation, password reset, signup OTP)
 import { format } from 'date-fns';
 import sgMail from '@sendgrid/mail';
 
@@ -13,6 +13,13 @@ interface BookingEmailData {
   duration: number;
   customerNotes?: string;
   bookingId: string;
+}
+
+interface BookingUpdateData extends BookingEmailData {
+  oldBookingDate?: Date;
+  oldBookingTime?: string;
+  oldDuration?: number;
+  changes: string[];
 }
 
 export class EmailService {
@@ -134,6 +141,74 @@ export class EmailService {
       console.error('Error sending password reset email:', error);
     }
   }
+  
+  static async sendSignupOTPEmail(email: string, otp: string, userName?: string): Promise<void> {
+    const subject = 'Verify your Settle account';
+    const name = userName || 'there';
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="color: #333; margin-bottom: 10px;">Welcome to Settle!</h1>
+          <p style="color: #666; font-size: 16px;">Hi ${name}, please verify your email address to complete your registration.</p>
+        </div>
+        
+        <div style="background-color: #f7f7f7; border-radius: 10px; padding: 20px; margin-bottom: 20px; text-align: center;">
+          <p style="font-size: 16px; color: #555; margin-bottom: 15px;">Your verification code is:</p>
+          <div style="font-size: 32px; font-weight: bold; letter-spacing: 4px; background:#ffffff; padding: 12px 16px; display:inline-block; border-radius:8px; margin-bottom: 15px;">
+            ${otp}
+          </div>
+          <p style="font-size: 14px; color: #888;">This code will expire in 10 minutes.</p>
+        </div>
+        
+        <div style="text-align: center; color: #888; font-size: 14px;">
+          <p>If you didn't request this verification, you can safely ignore this email.</p>
+          <p>© ${new Date().getFullYear()} Settle. All rights reserved.</p>
+        </div>
+      </div>
+    `;
+    
+    try {
+      await this.send({ to: email, subject, html, category: 'signup-verification' });
+      console.log(`Signup OTP email sent to ${email}`);
+    } catch (error) {
+      console.error('Error sending signup OTP email:', error);
+      throw error;
+    }
+  }
+  
+  static async sendForgotPasswordEmail(email: string, resetLink: string, userName?: string): Promise<void> {
+    const subject = 'Reset Your Settle Password';
+    const name = userName || 'there';
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="color: #333; margin-bottom: 10px;">Password Reset</h1>
+          <p style="color: #666; font-size: 16px;">Hi ${name}, we received a request to reset your password.</p>
+        </div>
+        
+        <div style="background-color: #f7f7f7; border-radius: 10px; padding: 20px; margin-bottom: 20px; text-align: center;">
+          <p style="font-size: 16px; color: #555; margin-bottom: 15px;">Click the button below to reset your password:</p>
+          <a href="${resetLink}" style="background-color: #4a90e2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">Reset Password</a>
+          <p style="font-size: 14px; color: #888; margin-top: 15px;">This link will expire in 1 hour.</p>
+          <p style="font-size: 14px; color: #888; margin-top: 15px;">If the button doesn't work, copy and paste this link into your browser:</p>
+          <p style="font-size: 14px; word-break: break-all; background: #fff; padding: 10px; border-radius: 5px;">${resetLink}</p>
+        </div>
+        
+        <div style="text-align: center; color: #888; font-size: 14px;">
+          <p>If you didn't request a password reset, you can safely ignore this email.</p>
+          <p>© ${new Date().getFullYear()} Settle. All rights reserved.</p>
+        </div>
+      </div>
+    `;
+    
+    try {
+      await this.send({ to: email, subject, html, category: 'forgot-password' });
+      console.log(`Forgot password email sent to ${email}`);
+    } catch (error) {
+      console.error('Error sending forgot password email:', error);
+      throw error;
+    }
+  }
 
   static async sendBookingCancellation(data: BookingEmailData & { cancellationReason?: string }): Promise<void> {
     const { customerEmail, businessEmail, customerName, businessName, serviceName, bookingDate, bookingTime, bookingId, cancellationReason } = data;
@@ -179,6 +254,141 @@ export class EmailService {
     } catch (error) {
       console.error('Error sending booking cancellation emails:', error);
     }
+  }
+  
+  static async sendBookingUpdateNotification(data: BookingUpdateData): Promise<void> {
+    const { 
+      customerEmail, 
+      businessEmail, 
+      customerName, 
+      businessName, 
+      serviceName, 
+      bookingDate, 
+      bookingTime, 
+      duration, 
+      bookingId, 
+      changes,
+      oldBookingDate,
+      oldBookingTime
+    } = data;
+
+    const formattedDate = format(bookingDate, 'EEEE, MMMM do, yyyy');
+    const formattedOldDate = oldBookingDate ? format(oldBookingDate, 'EEEE, MMMM do, yyyy') : '';
+    
+    // Email to customer
+    const customerSubject = `Booking Updated - ${serviceName} with ${businessName}`;
+    const customerHtml = this.generateBookingUpdateTemplate({
+      customerName,
+      businessName,
+      serviceName,
+      bookingDate: formattedDate,
+      bookingTime,
+      duration,
+      bookingId,
+      changes,
+      oldBookingDate: formattedOldDate,
+      oldBookingTime,
+      isForCustomer: true
+    });
+
+    // Email to business
+    const businessSubject = `Booking Updated - ${serviceName} on ${formattedDate}`;
+    const businessHtml = this.generateBookingUpdateTemplate({
+      customerName,
+      businessName,
+      serviceName,
+      bookingDate: formattedDate,
+      bookingTime,
+      duration,
+      bookingId,
+      changes,
+      oldBookingDate: formattedOldDate,
+      oldBookingTime,
+      isForCustomer: false
+    });
+
+    try {
+      // Send email to customer
+      await this.send({ to: customerEmail, subject: customerSubject, html: customerHtml, category: 'booking-update' });
+
+      // Send email to business
+      await this.send({ to: businessEmail, subject: businessSubject, html: businessHtml, category: 'booking-update' });
+
+      console.log(`Booking update emails sent for booking ${bookingId}`);
+    } catch (error) {
+      console.error('Error sending booking update emails:', error);
+    }
+  }
+  
+  private static generateBookingUpdateTemplate(data: {
+    customerName: string;
+    businessName: string;
+    serviceName: string;
+    bookingDate: string;
+    bookingTime: string;
+    duration: number;
+    bookingId: string;
+    changes: string[];
+    oldBookingDate?: string;
+    oldBookingTime?: string;
+    isForCustomer: boolean;
+  }): string {
+    const { 
+      customerName, 
+      businessName, 
+      serviceName, 
+      bookingDate, 
+      bookingTime, 
+      duration, 
+      bookingId, 
+      changes,
+      oldBookingDate,
+      oldBookingTime,
+      isForCustomer
+    } = data;
+    
+    const recipient = isForCustomer ? customerName : 'You';
+    const provider = isForCustomer ? businessName : 'your business';
+    const changesHtml = changes.map(change => `<li style="margin-bottom: 8px;">${change}</li>`).join('');
+    
+    return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Booking Update</title>
+    </head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #4a90e2; margin-bottom: 10px;">Booking Update</h1>
+        <p style="font-size: 18px; color: #555;">Your booking details have been updated</p>
+      </div>
+      
+      <div style="background-color: #f7f7f7; border-radius: 10px; padding: 20px; margin-bottom: 20px;">
+        <h2 style="color: #333; margin-top: 0;">Updated Booking Details</h2>
+        
+        <p style="margin-bottom: 5px;"><strong>Service:</strong> ${serviceName}</p>
+        <p style="margin-bottom: 5px;"><strong>Date:</strong> ${bookingDate}</p>
+        <p style="margin-bottom: 5px;"><strong>Time:</strong> ${bookingTime}</p>
+        <p style="margin-bottom: 5px;"><strong>Duration:</strong> ${duration} minutes</p>
+        <p style="margin-bottom: 5px;"><strong>Booking ID:</strong> ${bookingId}</p>
+        
+        <div style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
+          <h3 style="color: #333;">Changes Made:</h3>
+          <ul style="padding-left: 20px; color: #555;">
+            ${changesHtml}
+          </ul>
+        </div>
+      </div>
+      
+      <div style="text-align: center; color: #888; font-size: 14px; margin-top: 30px;">
+        <p>If you have any questions, please contact us.</p>
+        <p>© ${new Date().getFullYear()} Settle. All rights reserved.</p>
+      </div>
+    </body>
+    </html>
+    `;
   }
 
   private static generateCustomerEmailTemplate(data: {

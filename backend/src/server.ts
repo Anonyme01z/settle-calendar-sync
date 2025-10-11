@@ -1,8 +1,10 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './swagger.js';
 
@@ -13,9 +15,8 @@ import serviceRoutes from './routes/services';
 import calendarRoutes from './routes/calendar';
 import adminRoutes from './routes/admin'; // Import new admin routes
 import passwordResetRoutes from './routes/password-reset';
+import paymentRoutes from './routes/payments';
 import apiRoutes from './routes';
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -56,6 +57,7 @@ app.use('/api/business', businessRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/admin', adminRoutes); // Use new admin routes
+app.use('/api/payments', paymentRoutes);
 app.use('/api', apiRoutes);
 
 // Swagger UI

@@ -2,6 +2,7 @@ export interface User {
   id: string;
   email: string;
   passwordHash: string;
+  emailVerified: boolean;
   googleAccessToken?: string;
   googleRefreshToken?: string;
   googleTokenExpiry?: Date;

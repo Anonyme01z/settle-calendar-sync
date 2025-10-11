@@ -11,12 +11,12 @@ export class UserService {
     const passwordHash = await bcrypt.hash(password, 10);
     
     const query = `
-      INSERT INTO users (id, email, password_hash, created_at, updated_at)
-      VALUES ($1, $2, $3, NOW(), NOW())
+      INSERT INTO users (id, email, password_hash, email_verified, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, NOW(), NOW())
       RETURNING *
     `;
     
-    const result = await pool.query(query, [id, email, passwordHash]);
+    const result = await pool.query(query, [id, email, passwordHash, false]);
     return this.mapRowToUser(result.rows[0]);
   }
 
@@ -81,11 +81,28 @@ export class UserService {
     return bcrypt.compare(password, hash);
   }
 
+  static async markEmailAsVerified(email: string): Promise<void> {
+    const query = 'UPDATE users SET email_verified = TRUE, updated_at = NOW() WHERE email = $1';
+    await pool.query(query, [email]);
+  }
+
+  static async isEmailVerified(email: string): Promise<boolean> {
+    const query = 'SELECT email_verified FROM users WHERE email = $1';
+    const result = await pool.query(query, [email]);
+    
+    if (result.rows.length === 0) {
+      return false;
+    }
+    
+    return result.rows[0].email_verified;
+  }
+
   private static mapRowToUser(row: any): User {
     return {
       id: row.id,
       email: row.email,
       passwordHash: row.password_hash,
+      emailVerified: row.email_verified || false,
       googleAccessToken: row.google_access_token,
       googleRefreshToken: row.google_refresh_token,
       googleTokenExpiry: row.google_token_expiry,

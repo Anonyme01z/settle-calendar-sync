@@ -1,5 +1,6 @@
 // Route: Business profile and settings (including avatar uploads)
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { BusinessService } from '../services/businessService';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 import Joi from 'joi';
@@ -125,7 +126,15 @@ router.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
  *       200:
  *         description: Business profile
  */
-router.get('/:userId/profile', authenticateToken, async (req: AuthRequest, res) => {
+
+// Apply a more lenient rate limit specifically for the business profile GET endpoint
+const getProfileLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 200, // limit each IP to 200 requests per windowMs
+  message: 'Too many requests for this profile, please try again later.'
+});
+
+router.get('/:userId/profile', getProfileLimiter, authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { userId } = req.params;
     

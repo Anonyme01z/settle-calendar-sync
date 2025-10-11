@@ -19,17 +19,11 @@ services:
     build: .
     ports:
       - "3001:3001"
+    env_file:
+      - .env
     environment:
-      NODE_ENV: development
-      PORT: 3001
+      # Override database URL for Docker network
       DATABASE_URL: postgresql://settle_user:settle_password@postgres:5432/settle_booking
-      JWT_SECRET: your-super-secret-jwt-key-change-this-in-production
-      JWT_EXPIRE_TIME: 7d
-      GOOGLE_CLIENT_ID: 424823467003-q2lr28epgso6u3ujclu2c7ru7aoovdh9.apps.googleusercontent.com
-      GOOGLE_CLIENT_SECRET: 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
-      GOOGLE_REDIRECT_URI: http://localhost:3001/api/auth/google/callback 
-      FRONTEND_URL: http://localhost:8080
-      ENCRYPTION_KEY: your-32-character-encryption-key-here
     depends_on:
       - postgres
     networks:

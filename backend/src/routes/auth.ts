@@ -6,6 +6,8 @@ import { generateToken } from '../utils/jwt';
 import { oauth2Client, SCOPES } from '../config/google';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 import Joi from 'joi';
+import emailVerificationRouter from './email-verification';
+import pool from '../config/database';
 
 const router = express.Router();
 
@@ -14,6 +16,13 @@ const registerSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(6).required(),
   businessName: Joi.string().required()
+});
+
+const registerWithVerificationSchema = Joi.object({
+  email: Joi.string().email().required(),
+  password: Joi.string().min(6).required(),
+  businessName: Joi.string().required(),
+  verificationCode: Joi.string().length(6).required()
 });
 
 const loginSchema = Joi.object({
@@ -126,6 +135,123 @@ router.post('/register', async (req, res) => {
       businessProfile: {
         ...businessProfile,
         handle: businessHandle // Ensure handle is returned
+      }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/auth/register-with-verification:
+ *   post:
+ *     summary: Register a new user with email verification
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               businessName:
+ *                 type: string
+ *               verificationCode:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: User registered successfully
+ *       400:
+ *         description: Invalid verification code or user already exists
+ */
+router.post('/register-with-verification', async (req, res) => {
+  try {
+    const { error, value } = registerWithVerificationSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const { email, password, businessName, verificationCode } = value;
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Check if user already exists
+    const existingUser = await UserService.findByEmail(normalizedEmail);
+    if (existingUser) {
+      return res.status(400).json({ error: 'User already exists' });
+    }
+
+    // Verify the email verification code
+    const verificationResult = await pool.query(`
+      UPDATE email_verification_codes 
+      SET used = TRUE 
+      WHERE email = $1 AND code = $2 AND expires_at > NOW() AND used = FALSE
+      RETURNING id
+    `, [normalizedEmail, verificationCode]);
+
+    if (verificationResult.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired verification code' });
+    }
+
+    // Auto-generate unique handle from businessName
+    const businessHandle = await generateUniqueHandle(businessName);
+
+    // Create user with verified email
+    const user = await UserService.createUser(normalizedEmail, password);
+    
+    // Mark email as verified
+    await UserService.markEmailAsVerified(normalizedEmail);
+
+    // Create business profile with default settings
+    const defaultSettings = {
+      workingHours: [
+        { day: 'monday', startTime: '09:00', endTime: '17:00', isWorkingDay: true },
+        { day: 'tuesday', startTime: '09:00', endTime: '17:00', isWorkingDay: true },
+        { day: 'wednesday', startTime: '09:00', endTime: '17:00', isWorkingDay: true },
+        { day: 'thursday', startTime: '09:00', endTime: '17:00', isWorkingDay: true },
+        { day: 'friday', startTime: '09:00', endTime: '17:00', isWorkingDay: true },
+        { day: 'saturday', startTime: '09:00', endTime: '17:00', isWorkingDay: false },
+        { day: 'sunday', startTime: '09:00', endTime: '17:00', isWorkingDay: false }
+      ],
+      bufferTimeMinutes: 15,
+      minBookingNoticeHours: 24,
+      bookingWindowDays: 30,
+      calendarConnected: false,
+      timeZone: 'America/New_York'
+    };
+
+    const businessProfile = await BusinessService.createBusinessProfile(
+      user.id,
+      businessName,
+      normalizedEmail,
+      businessHandle,
+      defaultSettings
+    );
+
+    // Generate token
+    const token = generateToken(user.id);
+
+    // Clean up verification codes for this email
+    await pool.query(`
+      DELETE FROM email_verification_codes 
+      WHERE email = $1
+    `, [normalizedEmail]);
+
+    res.status(201).json({
+      message: 'User registered successfully',
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        emailVerified: true
+      },
+      businessProfile: {
+        ...businessProfile,
+        handle: businessHandle
       }
     });
   } catch (error) {
@@ -281,5 +407,8 @@ router.post('/google/disconnect', authenticateToken, async (req: AuthRequest, re
     res.status(500).json({ error: 'Failed to disconnect Google Calendar' });
   }
 });
+
+// Mount email verification routes
+router.use('/', emailVerificationRouter);
 
 export default router;

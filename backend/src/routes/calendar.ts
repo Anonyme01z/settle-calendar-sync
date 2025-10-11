@@ -1,6 +1,8 @@
 // Route: Calendar availability, booking creation, and cancellation
 import express from 'express';
 import { CalendarService } from '../services/calendarService';
+import { WalletService } from '../services/walletService';
+import { PaystackService } from '../services/paystackService';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 import Joi from 'joi';
 import pool from '../config/database';
@@ -12,7 +14,9 @@ const bookingSchema = Joi.object({
   serviceId: Joi.string().required(),
   slotStartTime: Joi.string().isoDate().required(),
   customerName: Joi.string().allow(''),
-  customerEmail: Joi.string().email().allow('')
+  customerEmail: Joi.string().email().allow(''),
+  customerPhone: Joi.string().optional(),
+  customerNotes: Joi.string().optional()
 });
 
 /**
@@ -116,8 +120,9 @@ router.post('/:userId/book', authenticateToken, async (req: AuthRequest, res) =>
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { serviceId, slotStartTime, customerName, customerEmail } = value;
+    const { serviceId, slotStartTime, customerName, customerEmail, customerPhone, customerNotes } = value;
 
+    // First, create a tentative booking (without payment)
     const booking = await CalendarService.createBooking(
       userId,
       serviceId,
@@ -126,9 +131,85 @@ router.post('/:userId/book', authenticateToken, async (req: AuthRequest, res) =>
       customerEmail
     );
 
+    // Get service details to calculate deposit
+    const serviceQuery = 'SELECT * FROM services WHERE id = $1';
+    const serviceResult = await pool.query(serviceQuery, [serviceId]);
+    
+    if (serviceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+
+    const service = serviceResult.rows[0];
+    const depositPercentage = service.deposit_percentage || 25; // Default 25%
+    const totalAmount = service.price || 0; // You'll need to add price field to services
+
+    // Create payment intent
+    const paymentIntent = await WalletService.createPaymentIntent(
+      booking.id,
+      userId, // business ID
+      customerEmail,
+      totalAmount,
+      depositPercentage,
+      customerName,
+      customerPhone
+    );
+
+    // Initialize Paystack transaction
+    const paystackResponse = await PaystackService.initializeTransaction({
+      amount: paymentIntent.depositAmount,
+      email: customerEmail,
+      reference: PaystackService.generateReference(),
+      callback_url: `${process.env.FRONTEND_URL}/payment/callback`,
+      metadata: {
+        paymentIntentId: paymentIntent.id,
+        bookingId: booking.id,
+        businessId: userId,
+        depositPercentage
+      },
+      customer: {
+        email: customerEmail,
+        first_name: customerName?.split(' ')[0],
+        last_name: customerName?.split(' ').slice(1).join(' '),
+        phone: customerPhone
+      }
+    });
+
+    if (!paystackResponse.status) {
+      return res.status(400).json({ error: paystackResponse.message });
+    }
+
+    // Update payment intent with Paystack data
+    await WalletService.updatePaymentIntent(
+      paymentIntent.id,
+      paystackResponse.data.reference,
+      paystackResponse.data.access_code,
+      'pending'
+    );
+
     res.status(201).json({
-      message: 'Booking created successfully',
-      booking
+      message: 'Booking created. Payment required to confirm.',
+      booking: {
+        id: booking.id,
+        status: 'pending_payment',
+        serviceName: service.title,
+        slotStartTime: booking.start_time,
+        customerName,
+        customerEmail
+      },
+      payment: {
+        paymentIntentId: paymentIntent.id,
+        depositAmount: paymentIntent.depositAmount,
+        totalAmount: paymentIntent.amount,
+        depositPercentage: paymentIntent.depositPercentage,
+        currency: paymentIntent.currency,
+        expiresAt: paymentIntent.expiresAt
+      },
+      paystack: {
+        publicKey: PaystackService.getPublicKey(),
+        reference: paystackResponse.data.reference,
+        accessCode: paystackResponse.data.access_code,
+        authorizationUrl: paystackResponse.data.authorization_url
+      }
     });
   } catch (error) {
     console.error('Create booking error:', error);
