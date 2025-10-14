@@ -349,7 +349,6 @@ router.get('/bookings', authenticateToken, async (req: AuthRequest, res: any) =>
         b.end_time,
         b.customer_name,
         b.customer_email,
-        b.customer_notes,
         b.status,
         b.created_at,
         b.updated_at,
@@ -484,7 +483,6 @@ router.patch('/bookings/:bookingId/cancel', authenticateToken, async (req: AuthR
         b.end_time,
         b.customer_name,
         b.customer_email,
-        b.customer_notes,
         b.status,
         s.title as service_name,
         s.duration_minutes
