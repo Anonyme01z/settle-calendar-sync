@@ -394,5 +394,129 @@ export class CalendarService {
 
     return { success: true };
   }
+
+  static async reserveSlot(userId: string, serviceId: string, slotStartTime: string): Promise<{ reservationToken: string; expiresAt: string }> {
+    const service = await ServiceService.findById(serviceId, userId);
+    if (!service) {
+      throw new Error('Service not found');
+    }
+
+    // Check if slot is available
+    const date = new Date(slotStartTime);
+    const slots = await this.getAvailableSlots(userId, date.toISOString().split('T')[0], serviceId);
+    const isSlotAvailable = slots.some(slot => slot.startTime === slotStartTime);
+    
+    if (!isSlotAvailable) {
+      throw new Error('Slot is not available');
+    }
+
+    // Calculate expiry time (10 minutes from now)
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    // Create reservation in database
+    const result = await pool.query(
+      `INSERT INTO bookings (
+        user_id, service_id, start_time, end_time,
+        status, reservation_expires_at, reservation_token
+      ) VALUES ($1, $2, $3, $4, $5, $6, gen_random_uuid())
+      RETURNING reservation_token, reservation_expires_at`,
+      [
+        userId,
+        serviceId,
+        slotStartTime,
+        new Date(new Date(slotStartTime).getTime() + (service.durationMinutes || 60) * 60 * 1000).toISOString(),
+        'reserved',
+        expiresAt.toISOString()
+      ]
+    );
+
+    return {
+      reservationToken: result.rows[0].reservation_token,
+      expiresAt: result.rows[0].reservation_expires_at
+    };
+  }
+
+  static async confirmReservation(
+    userId: string,
+    serviceId: string,
+    reservationToken: string,
+    customerName: string,
+    customerEmail: string,
+    customerNotes?: string
+  ): Promise<any> {
+    // Check if reservation exists and is not expired
+    const reservationResult = await pool.query(
+      `SELECT * FROM bookings 
+       WHERE user_id = $1 
+         AND service_id = $2 
+         AND reservation_token = $3 
+         AND status = 'reserved' 
+         AND reservation_expires_at > NOW()`,
+      [userId, serviceId, reservationToken]
+    );
+
+    if (reservationResult.rows.length === 0) {
+      throw new Error('Invalid or expired reservation');
+    }
+
+    const reservation = reservationResult.rows[0];
+
+    // Update the booking with customer details and confirm it
+    const booking = await pool.query(
+      `UPDATE bookings 
+       SET status = 'confirmed',
+           customer_name = $1,
+           customer_email = $2,
+           customer_notes = $3
+       WHERE reservation_token = $4
+       RETURNING *`,
+      [customerName, customerEmail, customerNotes, reservationToken]
+    );
+
+    // Create Google Calendar event
+    const accessToken = await this.refreshAccessTokenIfNeeded(userId);
+    oauth2Client.setCredentials({ access_token: accessToken });
+
+    const service = await ServiceService.findById(serviceId, userId);
+    const business = await BusinessService.findByUserId(userId);
+
+    const event = {
+      summary: `${service?.title} - ${customerName}`,
+      description: `Booking for ${customerName}\nEmail: ${customerEmail}${customerNotes ? `\nNotes: ${customerNotes}` : ''}`,
+      start: {
+        dateTime: reservation.start_time.toISOString(),
+        timeZone: business?.settings.timeZone || 'UTC'
+      },
+      end: {
+        dateTime: reservation.end_time.toISOString(),
+        timeZone: business?.settings.timeZone || 'UTC'
+      }
+    };
+
+    const calendarEvent = await calendar.events.insert({
+      calendarId: 'primary',
+      requestBody: event
+    });
+
+    // Update booking with Google Calendar event ID
+    await pool.query(
+      'UPDATE bookings SET google_calendar_event_id = $1 WHERE id = $2',
+      [calendarEvent.data.id, booking.rows[0].id]
+    );
+
+    return {
+      ...booking.rows[0],
+      eventId: calendarEvent.data.id
+    };
+  }
+
+  // Add cleanup method for expired reservations
+  static async cleanupExpiredReservations(): Promise<void> {
+    await pool.query(
+      `DELETE FROM bookings 
+       WHERE status = 'reserved' 
+         AND reservation_expires_at < NOW()`
+    );
+  }
 }
 

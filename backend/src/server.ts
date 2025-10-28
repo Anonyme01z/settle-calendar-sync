@@ -8,15 +8,16 @@ import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './swagger.js';
 
-// Import routes
+// Import routes and services
 import authRoutes from './routes/auth';
 import businessRoutes from './routes/business';
 import serviceRoutes from './routes/services';
 import calendarRoutes from './routes/calendar';
-import adminRoutes from './routes/admin'; // Import new admin routes
+import adminRoutes from './routes/admin';
 import passwordResetRoutes from './routes/password-reset';
 import paymentRoutes from './routes/payments';
 import apiRoutes from './routes';
+import { CalendarService } from './services/calendarService';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -56,7 +57,7 @@ app.use('/api/auth', passwordResetRoutes);
 app.use('/api/business', businessRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/calendar', calendarRoutes);
-app.use('/api/admin', adminRoutes); // Use new admin routes
+app.use('/api/admin', adminRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api', apiRoutes);
 
@@ -78,10 +79,20 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   }
 });
 
+// Set up cleanup job for expired reservations (runs every minute)
+setInterval(async () => {
+  try {
+    await CalendarService.cleanupExpiredReservations();
+  } catch (error) {
+    console.error('Failed to cleanup expired reservations:', error);
+  }
+}, 60 * 1000);
+
 app.listen(PORT, () => {
   console.log(`🚀 Settle API server running on port ${PORT}`);
   console.log(`📅 Google Calendar integration enabled`);
   console.log(`🔒 CORS enabled for: ${process.env.FRONTEND_URL || 'http://localhost:8080'}`);
+  console.log(`🧹 Reservation cleanup job running`);
 });
 
 export default app;

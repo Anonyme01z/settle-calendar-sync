@@ -164,4 +164,92 @@ router.post('/business/:handle/services/:serviceId/book', async (req, res) => {
   }
 });
 
+// 6. Reserve a Slot
+const reserveSchema = Joi.object({
+  slotStartTime: Joi.string().isoDate().required()
+});
+
+router.post('/business/:handle/services/:serviceId/reserve', async (req, res) => {
+  const { handle, serviceId } = req.params;
+  const { error, value } = reserveSchema.validate(req.body);
+  if (error) return res.status(400).json({ error: error.details[0].message });
+  
+  const business = await BusinessService.findByHandle(handle);
+  if (!business) return res.status(404).json({ error: 'Business not found' });
+
+  try {
+    const reservation = await CalendarService.reserveSlot(
+      business.userId,
+      serviceId,
+      value.slotStartTime
+    );
+
+    res.json(reservation);
+  } catch (err: any) {
+    if (err.message === 'Service not found') {
+      return res.status(404).json({ error: 'Service not found' });
+    } else if (err.message === 'Slot is not available') {
+      return res.status(400).json({ error: 'The selected slot is no longer available' });
+    }
+    res.status(400).json({ error: err.message || 'Failed to reserve slot' });
+  }
+});
+
+// 7. Confirm a Reservation
+const confirmSchema = Joi.object({
+  reservationToken: Joi.string().uuid().required(),
+  customerName: Joi.string().required(),
+  customerEmail: Joi.string().email().required(),
+  customerNotes: Joi.string().allow('').optional()
+});
+
+router.post('/business/:handle/services/:serviceId/confirm', async (req, res) => {
+  const { handle, serviceId } = req.params;
+  const { error, value } = confirmSchema.validate(req.body);
+  if (error) return res.status(400).json({ error: error.details[0].message });
+  
+  const business = await BusinessService.findByHandle(handle);
+  if (!business) return res.status(404).json({ error: 'Business not found' });
+
+  try {
+    const booking = await CalendarService.confirmReservation(
+      business.userId,
+      serviceId,
+      value.reservationToken,
+      value.customerName,
+      value.customerEmail,
+      value.customerNotes
+    );
+
+    // Send email notifications (async, don't wait)
+    const service = await ServiceService.findById(serviceId, business.userId);
+    if (!service) throw new Error('Service not found');
+
+    const bookingDateTime = new Date(booking.start_time);
+    const bookingTime = format(bookingDateTime, 'h:mm a');
+    
+    EmailService.sendBookingConfirmation({
+      customerName: value.customerName,
+      customerEmail: value.customerEmail,
+      businessName: business.name,
+      businessEmail: business.email,
+      serviceName: service.title,
+      bookingDate: bookingDateTime,
+      bookingTime: bookingTime,
+      duration: service.durationMinutes || 60,
+      customerNotes: value.customerNotes,
+      bookingId: booking.eventId || booking.id
+    }).catch(error => {
+      console.error('Failed to send booking confirmation emails:', error);
+    });
+
+    res.json({ success: true, bookingId: booking.eventId, message: 'Booking confirmed!' });
+  } catch (err: any) {
+    if (err.message === 'Invalid or expired reservation') {
+      return res.status(400).json({ error: 'The reservation is invalid or has expired' });
+    }
+    res.status(400).json({ error: err.message || 'Failed to confirm booking' });
+  }
+});
+
 export default router;
