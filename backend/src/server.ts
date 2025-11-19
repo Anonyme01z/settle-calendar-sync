@@ -16,6 +16,7 @@ import passwordResetRoutes from './routes/password-reset';
 import paymentRoutes from './routes/payments';
 import apiRoutes from './routes';
 import { CalendarService } from './services/calendarService';
+import pool from './config/database';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -75,20 +76,27 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   }
 });
 
-// Set up cleanup job for expired reservations (runs every minute)
-setInterval(async () => {
+async function startCleanupJob() {
   try {
-    await CalendarService.cleanupExpiredReservations();
-  } catch (error) {
-    console.error('Failed to cleanup expired reservations:', error);
+    const res = await pool.query('SELECT to_regclass($1) AS exists', ['public.bookings']);
+    if (!res.rows[0] || res.rows[0].exists === null) return;
+    setInterval(async () => {
+      try {
+        await CalendarService.cleanupExpiredReservations();
+      } catch (error) {
+        console.error('Failed to cleanup expired reservations:', error);
+      }
+    }, 60 * 1000);
+  } catch (_) {
   }
-}, 60 * 1000);
+}
 
 app.listen(PORT, () => {
   console.log(`🚀 Settle API server running on port ${PORT}`);
   console.log(`📅 Google Calendar integration enabled`);
   console.log(`🔒 CORS enabled for: ${process.env.FRONTEND_URL || 'http://localhost:8080'}`);
   console.log(`🧹 Reservation cleanup job running`);
+  void startCleanupJob();
 });
 
 export default app;
