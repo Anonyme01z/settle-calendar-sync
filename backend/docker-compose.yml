@@ -2,6 +2,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
+    container_name: settle_postgres
     environment:
       POSTGRES_DB: settle_booking
       POSTGRES_USER: settle_user
@@ -13,24 +14,37 @@ services:
       - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     networks:
       - settle-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U settle_user -d settle_booking" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # Settle API Server
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: settle_api
     ports:
       - "3001:3001"
     env_file:
       - .env
     environment:
-      # Override database URL for Docker network
+      # Override specific variables for Docker environment
+      NODE_ENV: production
+      PORT: 3001
       DATABASE_URL: postgresql://settle_user:settle_password@postgres:5432/settle_booking
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - settle-network
+    restart: always
 
 volumes:
   postgres_data:
+
 
 networks:
   settle-network:

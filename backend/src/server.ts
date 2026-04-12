@@ -5,8 +5,6 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import swaggerUi from 'swagger-ui-express';
-import swaggerSpec from './swagger.js';
 
 // Import routes and services
 import authRoutes from './routes/auth';
@@ -18,6 +16,7 @@ import passwordResetRoutes from './routes/password-reset';
 import paymentRoutes from './routes/payments';
 import apiRoutes from './routes';
 import { CalendarService } from './services/calendarService';
+import pool from './config/database';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -25,7 +24,7 @@ const PORT = process.env.PORT || 3001;
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8080',
+  origin: process.env.FRONTEND_URL || 'https://settle-calendar-sync.onrender.com',
   credentials: true
 }));
 
@@ -61,8 +60,6 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api', apiRoutes);
 
-// Swagger UI
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -79,20 +76,27 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   }
 });
 
-// Set up cleanup job for expired reservations (runs every minute)
-setInterval(async () => {
+async function startCleanupJob() {
   try {
-    await CalendarService.cleanupExpiredReservations();
-  } catch (error) {
-    console.error('Failed to cleanup expired reservations:', error);
+    const res = await pool.query('SELECT to_regclass($1) AS exists', ['public.bookings']);
+    if (!res.rows[0] || res.rows[0].exists === null) return;
+    setInterval(async () => {
+      try {
+        await CalendarService.cleanupExpiredReservations();
+      } catch (error) {
+        console.error('Failed to cleanup expired reservations:', error);
+      }
+    }, 60 * 1000);
+  } catch (_) {
   }
-}, 60 * 1000);
+}
 
 app.listen(PORT, () => {
   console.log(`🚀 Settle API server running on port ${PORT}`);
   console.log(`📅 Google Calendar integration enabled`);
-  console.log(`🔒 CORS enabled for: ${process.env.FRONTEND_URL || 'http://localhost:8080'}`);
+  console.log(`🔒 CORS enabled for: ${process.env.FRONTEND_URL || 'https://settle-calendar-sync.onrender.com'}`);
   console.log(`🧹 Reservation cleanup job running`);
+  void startCleanupJob();
 });
 
 export default app;

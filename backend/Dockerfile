@@ -1,41 +1,43 @@
-# Use official Node.js runtime as base image
-FROM node:18-alpine
+# Stage 1: Builder
+FROM node:18-alpine AS builder
 
-# Set working directory
 WORKDIR /app
 
-
-# Copy package files
+# Install dependencies
 COPY package*.json ./
-
-# Install dependencies (including devDependencies for build)
-RUN npm install
+RUN npm ci
 
 # Copy source code
 COPY . .
 
-# Build TypeScript
+# Build application
 RUN npm run build
 
-# Ensure dist directory exists before copying swagger.js
-RUN mkdir -p /app/dist
+# Stage 2: Runner
+FROM node:18-alpine AS runner
 
-# Diagnostic: List build output
-RUN ls -la /app/dist && ls -la /app
+WORKDIR /app
 
-# Remove devDependencies after build
-RUN npm prune --production
+# Install production dependencies only
+COPY package*.json ./
+RUN npm ci --omit=dev
 
-# Expose port
-EXPOSE 3001
+# Copy built artifacts from builder
+COPY --from=builder /app/dist ./dist
+# Copy database folder (schema + migrations needed at runtime by migrate.js)
+COPY --from=builder /app/database ./database
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs
 RUN adduser -S settle -u 1001
 
-# Change ownership of the app directory
+# Set ownership
 RUN chown -R settle:nodejs /app
+
 USER settle
+
+# Expose port
+EXPOSE 3001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
