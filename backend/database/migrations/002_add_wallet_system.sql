@@ -22,9 +22,9 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
     amount DECIMAL(15,2) NOT NULL,
     currency VARCHAR(3) DEFAULT 'USD',
     description TEXT,
-    reference VARCHAR(255), -- External payment reference (Paystack, etc.)
+    reference VARCHAR(255),
     status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed', 'cancelled')),
-    metadata JSONB DEFAULT '{}', -- Store additional payment data
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS payment_intents (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create indexes for better performance
+-- Create indexes
 CREATE INDEX IF NOT EXISTS idx_wallets_business_id ON wallets(business_id);
 CREATE INDEX IF NOT EXISTS idx_wallet_transactions_wallet_id ON wallet_transactions(wallet_id);
 CREATE INDEX IF NOT EXISTS idx_wallet_transactions_booking_id ON wallet_transactions(booking_id);
@@ -63,12 +63,17 @@ CREATE INDEX IF NOT EXISTS idx_payment_intents_paystack_reference ON payment_int
 CREATE INDEX IF NOT EXISTS idx_payment_intents_status ON payment_intents(status);
 CREATE INDEX IF NOT EXISTS idx_payment_intents_expires_at ON payment_intents(expires_at);
 
--- Add triggers for updated_at timestamps
+-- Triggers for updated_at (drop first to make idempotent)
+DROP TRIGGER IF EXISTS update_wallets_updated_at ON wallets;
 CREATE TRIGGER update_wallets_updated_at BEFORE UPDATE ON wallets FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_wallet_transactions_updated_at ON wallet_transactions;
 CREATE TRIGGER update_wallet_transactions_updated_at BEFORE UPDATE ON wallet_transactions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_payment_intents_updated_at ON payment_intents;
 CREATE TRIGGER update_payment_intents_updated_at BEFORE UPDATE ON payment_intents FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Add wallet_id column to bookings table to track which wallet received payment
+-- Add wallet_id to bookings
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS wallet_id UUID REFERENCES wallets(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_bookings_wallet_id ON bookings(wallet_id);
 
@@ -82,7 +87,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger to automatically create wallet for new business
+DROP TRIGGER IF EXISTS create_wallet_on_business_creation ON business_profiles;
 CREATE TRIGGER create_wallet_on_business_creation
     AFTER INSERT ON business_profiles
     FOR EACH ROW
@@ -92,28 +97,18 @@ CREATE TRIGGER create_wallet_on_business_creation
 CREATE OR REPLACE FUNCTION update_wallet_balance()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Only update balance when transaction status changes to completed
     IF OLD.status != 'completed' AND NEW.status = 'completed' THEN
         IF NEW.type IN ('deposit', 'payment_received', 'adjustment') THEN
-            -- Add to wallet balance
-            UPDATE wallets 
-            SET balance = balance + NEW.amount,
-                updated_at = NOW()
-            WHERE id = NEW.wallet_id;
+            UPDATE wallets SET balance = balance + NEW.amount, updated_at = NOW() WHERE id = NEW.wallet_id;
         ELSIF NEW.type IN ('withdrawal', 'fee', 'refund') THEN
-            -- Subtract from wallet balance
-            UPDATE wallets 
-            SET balance = balance - NEW.amount,
-                updated_at = NOW()
-            WHERE id = NEW.wallet_id;
+            UPDATE wallets SET balance = balance - NEW.amount, updated_at = NOW() WHERE id = NEW.wallet_id;
         END IF;
     END IF;
-    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger to automatically update wallet balance
+DROP TRIGGER IF EXISTS update_balance_on_transaction_completion ON wallet_transactions;
 CREATE TRIGGER update_balance_on_transaction_completion
     AFTER UPDATE ON wallet_transactions
     FOR EACH ROW
