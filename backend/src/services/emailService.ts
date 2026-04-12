@@ -1,6 +1,7 @@
 // Service: Email notifications (booking confirmation/cancellation, password reset, signup OTP)
 import { format } from 'date-fns';
 import sgMail from '@sendgrid/mail';
+import * as Brevo from '@getbrevo/brevo';
 
 interface BookingEmailData {
   customerName: string;
@@ -32,48 +33,63 @@ export class EmailService {
     return { email: email as string, name };
   }
 
-  private static initialized = false;
+  private static getProvider(): 'sendgrid' | 'brevo' | null {
+    if (process.env.SENDGRID_API_KEY) return 'sendgrid';
+    if (process.env.BREVO_API_KEY) return 'brevo';
+    return null;
+  }
 
-  private static ensureInitialized() {
-    if (!EmailService.initialized) {
-      const key = process.env.SENDGRID_API_KEY;
-      if (!key) {
-        console.warn('SENDGRID_API_KEY is not set. Emails will fail to send.');
-        return false;
-      }
-      // Make sure the API key is properly formatted
-      const apiKey = key.trim();
-      sgMail.setApiKey(apiKey);
-      EmailService.initialized = true;
-      console.log('SendGrid initialized successfully');
+  private static sendgridInitialized = false;
+
+  private static ensureSendgrid() {
+    if (!EmailService.sendgridInitialized) {
+      sgMail.setApiKey(process.env.SENDGRID_API_KEY!.trim());
+      EmailService.sendgridInitialized = true;
+      console.log('📧 Email provider: SendGrid');
     }
-    return true;
+  }
+
+  private static async sendViaSendgrid(params: { to: string; subject: string; html: string; text?: string; category?: string }) {
+    this.ensureSendgrid();
+    const from = this.getFrom();
+    const msg: any = {
+      to: params.to,
+      from: { email: from.email, name: from.name },
+      subject: params.subject,
+      html: params.html,
+      text: params.text || this.stripHtml(params.html),
+      categories: [] as string[],
+    };
+    if (process.env.MAIL_TAG_PREFIX) msg.categories.push(process.env.MAIL_TAG_PREFIX);
+    if (params.category) msg.categories.push(params.category);
+    await sgMail.send(msg);
+  }
+
+  private static async sendViaBrevo(params: { to: string; subject: string; html: string; text?: string }) {
+    const apiInstance = new Brevo.TransactionalEmailsApi();
+    apiInstance.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, process.env.BREVO_API_KEY!.trim());
+    const from = this.getFrom();
+    const email = new Brevo.SendSmtpEmail();
+    email.sender = { name: from.name, email: from.email };
+    email.to = [{ email: params.to }];
+    email.subject = params.subject;
+    email.htmlContent = params.html;
+    email.textContent = params.text || this.stripHtml(params.html);
+    await apiInstance.sendTransacEmail(email);
+    console.log('📧 Email provider: Brevo');
   }
 
   private static async send(params: { to: string; subject: string; html: string; text?: string; replyTo?: string; category?: string }) {
-    if (!this.ensureInitialized()) {
-      // Skip sending if not configured
+    const provider = this.getProvider();
+    if (!provider) {
+      console.warn('⚠️  No email provider configured. Set SENDGRID_API_KEY or BREVO_API_KEY.');
       return;
     }
-    
-    const { to, subject, html, text, replyTo, category } = params;
-    const from = this.getFrom();
-    
-    const msg: any = {
-      to,
-      from: { email: from.email, name: from.name },
-      subject,
-      html,
-      text: text || this.stripHtml(html),
-      replyTo: replyTo,
-      categories: [] as string[]
-    };
-    
-    // Add categories if available
-    if (process.env.MAIL_TAG_PREFIX) msg.categories.push(process.env.MAIL_TAG_PREFIX);
-    if (category) msg.categories.push(category);
-    
-    await sgMail.send(msg);
+    if (provider === 'sendgrid') {
+      await this.sendViaSendgrid(params);
+    } else {
+      await this.sendViaBrevo(params);
+    }
   }
 
   static async sendBookingConfirmation(data: BookingEmailData): Promise<void> {
