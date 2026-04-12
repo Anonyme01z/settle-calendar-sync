@@ -21,6 +21,9 @@ import pool from './config/database';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Trust Render/proxy headers (required for rate limiting behind a reverse proxy)
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet());
 app.use(cors({

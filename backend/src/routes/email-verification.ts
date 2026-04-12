@@ -188,7 +188,7 @@ router.post('/verify-email', ipLimiter, async (req, res) => {
       WHERE email = $1
     `, [normalizedEmail]);
 
-    res.json({ message: 'Email verified successfully' });
+    res.json({ valid: true, message: 'Email verified successfully' });
   } catch (err: any) {
     console.error('Error verifying email:', err);
     res.status(500).json({ error: 'Internal server error' });
