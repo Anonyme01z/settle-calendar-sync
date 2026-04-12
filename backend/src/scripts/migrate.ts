@@ -4,13 +4,15 @@ import path from 'path'
 
 function getPool() {
   const url = process.env.DATABASE_URL
-  if (url) return new Pool({ connectionString: url, ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: false } : undefined })
+  // Enable SSL automatically in production (Render requires it) or when PGSSL=true
+  const useSSL = process.env.NODE_ENV === 'production' || process.env.PGSSL === 'true'
+  if (url) return new Pool({ connectionString: url, ssl: useSSL ? { rejectUnauthorized: false } : undefined })
   const host = process.env.PGHOST || 'localhost'
   const port = parseInt(process.env.PGPORT || '5432', 10)
   const user = process.env.PGUSER || 'postgres'
   const password = process.env.PGPASSWORD || ''
   const database = process.env.PGDATABASE || process.env.DB_NAME || 'postgres'
-  return new Pool({ host, port, user, password, database })
+  return new Pool({ host, port, user, password, database, ssl: useSSL ? { rejectUnauthorized: false } : undefined })
 }
 
 async function tableExists(pool: Pool, table: string) {
@@ -39,27 +41,34 @@ async function applySql(pool: Pool, filePath: string) {
 }
 
 async function run() {
+  console.log('🔄 Running migrations...')
   const pool = getPool()
   try {
     const bookingsExists = await tableExists(pool, 'public.bookings')
     if (!bookingsExists) {
+      console.log('📦 Applying base schema...')
       const schemaPath = path.resolve(__dirname, '..', '..', 'database', 'schema.sql')
       await applySql(pool, schemaPath)
+      console.log('✅ Base schema applied.')
     }
     await ensureMigrationsTable(pool)
     const migrationsDir = path.resolve(__dirname, '..', '..', 'database', 'migrations')
     const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort()
     for (const f of files) {
       const already = await hasMigration(pool, f)
-      if (already) continue
+      if (already) { console.log(`⏭️  Skipping ${f} (already applied)`); continue }
+      console.log(`⚙️  Applying ${f}...`)
       await applySql(pool, path.join(migrationsDir, f))
       await recordMigration(pool, f)
+      console.log(`✅ ${f} applied.`)
     }
+    console.log('✅ All migrations complete.')
   } finally {
     await pool.end()
   }
 }
 
 run().catch(err => {
+  console.error('❌ Migration failed:', err?.message || err)
   process.exitCode = 1
 })
