@@ -24,8 +24,8 @@ RUN npm ci --omit=dev
 
 # Copy built artifacts from builder
 COPY --from=builder /app/dist ./dist
-# Copy specific scripts if they are not in dist but needed (e.g., migrations in src/scripts might be needed if not compiled or handled by build)
-# Based on package.json, "migrate": "node dist/scripts/migrate.js", so it should be in dist.
+# Copy database folder (schema + migrations needed at runtime by migrate.js)
+COPY --from=builder /app/database ./database
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs
