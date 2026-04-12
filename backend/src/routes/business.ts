@@ -7,7 +7,7 @@ import Joi from 'joi';
 // @ts-ignore: If you haven't installed multer, run: npm install multer
 import multer, { StorageEngine, FileFilterCallback } from 'multer';
 import path from 'path';
-import { Request } from 'express';
+import type { Express } from 'express';
 
 const router = express.Router();
 
@@ -43,10 +43,10 @@ const updateProfileSchema = Joi.object({
 
 // Set up multer for file uploads
 const storage: StorageEngine = multer.diskStorage({
-  destination: function (req: Request, file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) {
+  destination: function (req: any, file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) {
     cb(null, path.join(__dirname, '../../uploads'));
   },
-  filename: function (req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) {
+  filename: function (req: any, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) {
     const ext = path.extname(file.originalname);
     const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
     cb(null, uniqueName);
@@ -55,7 +55,7 @@ const storage: StorageEngine = multer.diskStorage({
 const upload = multer({
   storage,
   limits: { fileSize: 2 * 1024 * 1024 }, // 2MB limit
-  fileFilter: (req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
+  fileFilter: (req: any, file: Express.Multer.File, cb: FileFilterCallback) => {
     if (file.mimetype.startsWith('image/')) {
       cb(null, true);
     } else {
@@ -95,7 +95,7 @@ router.post('/:userId/avatar', authenticateToken, upload.single('avatar'), async
     if (req.userId !== userId) {
       return res.status(403).json({ error: 'Access denied' });
     }
-    const file = (req as Request & { file?: Express.Multer.File }).file;
+    const file = (req as any).file as Express.Multer.File | undefined;
     if (!file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }

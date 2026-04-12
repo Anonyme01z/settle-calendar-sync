@@ -12,6 +12,7 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 .env.example
+.env.*
 
 # Build output
 dist/
@@ -100,6 +101,16 @@ jspm_packages/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Secrets and credentials
+*.pem
+*.key
+*.crt
+*.p12
+*credentials*.json
+service-account*.json
+google-credentials*.json
+secrets*.json
 
 # Database
 *.sqlite

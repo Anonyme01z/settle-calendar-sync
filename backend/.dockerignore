@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log
+dist
+.git
+.gitignore
+.env
+.env.example
+Dockerfile
+docker-compose.yml
+README.md
+cleanup.ps1
+test-*.js
+test-*.ts
+.DS_Store

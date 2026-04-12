@@ -24,7 +24,7 @@ const PORT = process.env.PORT || 3001;
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8080',
+  origin: process.env.FRONTEND_URL || 'https://settle-calendar-sync.onrender.com',
   credentials: true
 }));
 
@@ -94,7 +94,7 @@ async function startCleanupJob() {
 app.listen(PORT, () => {
   console.log(`🚀 Settle API server running on port ${PORT}`);
   console.log(`📅 Google Calendar integration enabled`);
-  console.log(`🔒 CORS enabled for: ${process.env.FRONTEND_URL || 'http://localhost:8080'}`);
+  console.log(`🔒 CORS enabled for: ${process.env.FRONTEND_URL || 'https://settle-calendar-sync.onrender.com'}`);
   console.log(`🧹 Reservation cleanup job running`);
   void startCleanupJob();
 });
