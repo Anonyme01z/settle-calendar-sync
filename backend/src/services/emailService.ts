@@ -2,6 +2,7 @@
 import { format } from 'date-fns';
 import sgMail from '@sendgrid/mail';
 import * as Brevo from '@getbrevo/brevo';
+import { Resend } from 'resend';
 
 interface BookingEmailData {
   customerName: string;
@@ -33,7 +34,8 @@ export class EmailService {
     return { email: email as string, name };
   }
 
-  private static getProvider(): 'sendgrid' | 'brevo' | null {
+  private static getProvider(): 'resend' | 'sendgrid' | 'brevo' | null {
+    if (process.env.RESEND_API_KEY) return 'resend';
     if (process.env.SENDGRID_API_KEY) return 'sendgrid';
     if (process.env.BREVO_API_KEY) return 'brevo';
     return null;
@@ -79,13 +81,29 @@ export class EmailService {
     console.log('📧 Email provider: Brevo');
   }
 
+  private static async sendViaResend(params: { to: string; subject: string; html: string; text?: string }) {
+    const resend = new Resend(process.env.RESEND_API_KEY!.trim());
+    const from = this.getFrom();
+    const { error } = await resend.emails.send({
+      from: `${from.name} <${from.email}>`,
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
+      text: params.text || this.stripHtml(params.html),
+    });
+    if (error) throw new Error(`Resend error: ${error.message}`);
+    console.log('📧 Email provider: Resend');
+  }
+
   private static async send(params: { to: string; subject: string; html: string; text?: string; replyTo?: string; category?: string }) {
     const provider = this.getProvider();
     if (!provider) {
-      console.warn('⚠️  No email provider configured. Set SENDGRID_API_KEY or BREVO_API_KEY.');
+      console.warn('⚠️  No email provider configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or BREVO_API_KEY.');
       return;
     }
-    if (provider === 'sendgrid') {
+    if (provider === 'resend') {
+      await this.sendViaResend(params);
+    } else if (provider === 'sendgrid') {
       await this.sendViaSendgrid(params);
     } else {
       await this.sendViaBrevo(params);
