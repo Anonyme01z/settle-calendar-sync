@@ -1,8 +1,6 @@
 // Service: Email notifications (booking confirmation/cancellation, password reset, signup OTP)
 import { format } from 'date-fns';
-import sgMail from '@sendgrid/mail';
-import * as Brevo from '@getbrevo/brevo';
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 
 interface BookingEmailData {
   customerName: string;
@@ -34,80 +32,39 @@ export class EmailService {
     return { email: email as string, name };
   }
 
-  private static getProvider(): 'resend' | 'sendgrid' | 'brevo' | null {
-    if (process.env.RESEND_API_KEY) return 'resend';
-    if (process.env.SENDGRID_API_KEY) return 'sendgrid';
-    if (process.env.BREVO_API_KEY) return 'brevo';
-    return null;
-  }
+  private static transporter: nodemailer.Transporter | null = null;
 
-  private static sendgridInitialized = false;
-
-  private static ensureSendgrid() {
-    if (!EmailService.sendgridInitialized) {
-      sgMail.setApiKey(process.env.SENDGRID_API_KEY!.trim());
-      EmailService.sendgridInitialized = true;
-      console.log('📧 Email provider: SendGrid');
+  private static getTransporter() {
+    if (!this.transporter) {
+      if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
+        console.warn('⚠️  Email not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASSWORD.');
+        return null;
+      }
+      this.transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT || '587'),
+        secure: process.env.SMTP_PORT === '465',
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASSWORD,
+        },
+      });
+      console.log('📧 Email provider: Gmail SMTP');
     }
+    return this.transporter;
   }
 
-  private static async sendViaSendgrid(params: { to: string; subject: string; html: string; text?: string; category?: string }) {
-    this.ensureSendgrid();
+  private static async send(params: { to: string; subject: string; html: string; text?: string }) {
+    const transporter = this.getTransporter();
+    if (!transporter) return;
     const from = this.getFrom();
-    const msg: any = {
-      to: params.to,
-      from: { email: from.email, name: from.name },
-      subject: params.subject,
-      html: params.html,
-      text: params.text || this.stripHtml(params.html),
-      categories: [] as string[],
-    };
-    if (process.env.MAIL_TAG_PREFIX) msg.categories.push(process.env.MAIL_TAG_PREFIX);
-    if (params.category) msg.categories.push(params.category);
-    await sgMail.send(msg);
-  }
-
-  private static async sendViaBrevo(params: { to: string; subject: string; html: string; text?: string }) {
-    const apiInstance = new Brevo.TransactionalEmailsApi();
-    apiInstance.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, process.env.BREVO_API_KEY!.trim());
-    const from = this.getFrom();
-    const email = new Brevo.SendSmtpEmail();
-    email.sender = { name: from.name, email: from.email };
-    email.to = [{ email: params.to }];
-    email.subject = params.subject;
-    email.htmlContent = params.html;
-    email.textContent = params.text || this.stripHtml(params.html);
-    await apiInstance.sendTransacEmail(email);
-    console.log('📧 Email provider: Brevo');
-  }
-
-  private static async sendViaResend(params: { to: string; subject: string; html: string; text?: string }) {
-    const resend = new Resend(process.env.RESEND_API_KEY!.trim());
-    const from = this.getFrom();
-    const { error } = await resend.emails.send({
-      from: `${from.name} <${from.email}>`,
+    await transporter.sendMail({
+      from: `"${from.name}" <${from.email}>`,
       to: params.to,
       subject: params.subject,
       html: params.html,
       text: params.text || this.stripHtml(params.html),
     });
-    if (error) throw new Error(`Resend error: ${error.message}`);
-    console.log('📧 Email provider: Resend');
-  }
-
-  private static async send(params: { to: string; subject: string; html: string; text?: string; replyTo?: string; category?: string }) {
-    const provider = this.getProvider();
-    if (!provider) {
-      console.warn('⚠️  No email provider configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or BREVO_API_KEY.');
-      return;
-    }
-    if (provider === 'resend') {
-      await this.sendViaResend(params);
-    } else if (provider === 'sendgrid') {
-      await this.sendViaSendgrid(params);
-    } else {
-      await this.sendViaBrevo(params);
-    }
   }
 
   static async sendBookingConfirmation(data: BookingEmailData): Promise<void> {

@@ -20,8 +20,6 @@
   "author": "Settle",
   "license": "MIT",
   "dependencies": {
-    "@getbrevo/brevo": "^2.5.0",
-    "@sendgrid/mail": "^8.1.6",
     "@types/nodemailer": "^6.4.17",
     "axios": "^1.12.2",
     "bcryptjs": "^3.0.2",
@@ -40,7 +38,6 @@
     "multer": "^2.0.1",
     "nodemailer": "^7.0.5",
     "pg": "^8.11.3",
-    "resend": "^6.10.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
     "uuid": "^9.0.1",
