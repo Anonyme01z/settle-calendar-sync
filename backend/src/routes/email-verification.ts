@@ -43,8 +43,9 @@ const verifyEmailSchema = Joi.object({
   code: Joi.string().length(6).required()
 });
 
-// Generate a 6-digit OTP code
+// Generate a 6-digit OTP code (uses DEFAULT_OTP env var in staging/dev)
 function generateOTPCode(): string {
+  if (process.env.DEFAULT_OTP) return process.env.DEFAULT_OTP;
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
