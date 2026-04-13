@@ -132,69 +132,8 @@ router.post('/send-verification-code', ipLimiter, emailLimiter, async (req, res)
   }
 });
 
-/**
- * @openapi
- * /api/auth/verify-email:
- *   post:
- *     summary: Verify email address with OTP code
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               email:
- *                 type: string
- *                 format: email
- *               code:
- *                 type: string
- *                 pattern: '^[0-9]{6}$'
- *     responses:
- *       200:
- *         description: Email verified successfully
- *       400:
- *         description: Invalid or expired verification code
- *       429:
- *         description: Too many requests
- */
-router.post('/verify-email', ipLimiter, async (req, res) => {
-  try {
-    const { error, value } = verifyEmailSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
-
-    const { email, code } = value;
-    const normalizedEmail = email.trim().toLowerCase();
-
-    // Check if valid code exists and mark as used in one query
-    const result = await pool.query(`
-      UPDATE email_verification_codes 
-      SET used = TRUE 
-      WHERE email = $1 AND code = $2 AND expires_at > NOW() AND used = FALSE
-      RETURNING id
-    `, [normalizedEmail, code]);
-
-    if (result.rows.length === 0) {
-      return res.status(400).json({ error: 'Invalid or expired verification code' });
-    }
-
-    // Mark email as verified (this will be used when user completes registration)
-    // For now, we just return success - the actual verification will happen during registration
-    
-    // Clean up all verification codes for this email
-    await pool.query(`
-      DELETE FROM email_verification_codes 
-      WHERE email = $1
-    `, [normalizedEmail]);
-
-    res.json({ valid: true, message: 'Email verified successfully' });
-  } catch (err: any) {
-    console.error('Error verifying email:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+// /verify-email removed — OTP is now validated and consumed in one step
+// by /api/auth/register-with-verification
 
 /**
  * @openapi
