@@ -3,6 +3,7 @@ import { format } from 'date-fns';
 import sgMail from '@sendgrid/mail';
 import * as Brevo from '@getbrevo/brevo';
 import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 
 interface BookingEmailData {
   customerName: string;
@@ -34,7 +35,8 @@ export class EmailService {
     return { email: email as string, name };
   }
 
-  private static getProvider(): 'resend' | 'sendgrid' | 'brevo' | null {
+  private static getProvider(): 'smtp' | 'resend' | 'sendgrid' | 'brevo' | null {
+    if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD) return 'smtp';
     if (process.env.RESEND_API_KEY) return 'resend';
     if (process.env.SENDGRID_API_KEY) return 'sendgrid';
     if (process.env.BREVO_API_KEY) return 'brevo';
@@ -95,13 +97,36 @@ export class EmailService {
     console.log('📧 Email provider: Resend');
   }
 
+  private static async sendViaSmtp(params: { to: string; subject: string; html: string; text?: string }) {
+    const from = this.getFrom();
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_PORT === '465',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASSWORD,
+      },
+    });
+    await transporter.sendMail({
+      from: `"${from.name}" <${from.email}>`,
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
+      text: params.text || this.stripHtml(params.html),
+    });
+    console.log('📧 Email provider: SMTP');
+  }
+
   private static async send(params: { to: string; subject: string; html: string; text?: string; replyTo?: string; category?: string }) {
     const provider = this.getProvider();
     if (!provider) {
-      console.warn('⚠️  No email provider configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or BREVO_API_KEY.');
+      console.warn('⚠️  No email provider configured. Set SMTP_HOST/USER/PASSWORD, RESEND_API_KEY, SENDGRID_API_KEY, or BREVO_API_KEY.');
       return;
     }
-    if (provider === 'resend') {
+    if (provider === 'smtp') {
+      await this.sendViaSmtp(params);
+    } else if (provider === 'resend') {
       await this.sendViaResend(params);
     } else if (provider === 'sendgrid') {
       await this.sendViaSendgrid(params);
