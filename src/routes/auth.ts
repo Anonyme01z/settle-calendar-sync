@@ -1,5 +1,6 @@
 // Route: Authentication (register, login, Google OAuth)
 import express from 'express';
+import crypto from 'crypto';
 import { UserService } from '../services/userService';
 import { BusinessService } from '../services/businessService';
 import { generateToken } from '../utils/jwt';
@@ -8,6 +9,26 @@ import { AuthRequest, authenticateToken } from '../middleware/auth';
 import Joi from 'joi';
 import emailVerificationRouter from './email-verification';
 import pool from '../config/database';
+
+// In-memory nonce store: nonce → userId (TTL 10 min)
+// For multi-instance deployments, move this to Redis or DB
+const oauthNonces = new Map<string, { userId: string; expiresAt: number }>();
+function createOAuthNonce(userId: string): string {
+  const nonce = crypto.randomBytes(32).toString('hex');
+  oauthNonces.set(nonce, { userId, expiresAt: Date.now() + 10 * 60 * 1000 });
+  return nonce;
+}
+function consumeOAuthNonce(nonce: string): string | null {
+  const entry = oauthNonces.get(nonce);
+  oauthNonces.delete(nonce);
+  if (!entry || Date.now() > entry.expiresAt) return null;
+  return entry.userId;
+}
+// Clean up expired nonces every 15 min
+setInterval(() => {
+  const now = Date.now();
+  oauthNonces.forEach((v, k) => { if (now > v.expiresAt) oauthNonces.delete(k); });
+}, 15 * 60 * 1000);
 
 const router = express.Router();
 
@@ -325,11 +346,14 @@ router.post('/login', async (req, res) => {
 // Google OAuth - Initiate
 router.get('/google/connect', authenticateToken, async (req: AuthRequest, res) => {
   try {
+    if (!req.userId) return res.status(401).json({ error: 'Unauthorized' });
+    // Use a random nonce as state — never expose userId in OAuth state param
+    const nonce = createOAuthNonce(req.userId);
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: SCOPES,
       prompt: 'consent',
-      state: req.userId // Pass user ID in state
+      state: nonce
     });
 
     res.json({ authUrl });
@@ -343,12 +367,16 @@ router.get('/google/connect', authenticateToken, async (req: AuthRequest, res) =
 router.get('/google/callback', async (req, res) => {
   try {
     const { code, state } = req.query;
-    
+
     if (!code || !state) {
       return res.status(400).json({ error: 'Missing authorization code or state' });
     }
 
-    const userId = state as string;
+    // Validate nonce and recover userId
+    const userId = consumeOAuthNonce(state as string);
+    if (!userId) {
+      return res.redirect(`${process.env.FRONTEND_URL}/auth/google/callback?status=error&reason=invalid_state`);
+    }
 
     // Exchange code for tokens
     const { tokens } = await oauth2Client.getToken(code as string);

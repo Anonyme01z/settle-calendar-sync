@@ -54,13 +54,21 @@ export class EmailService {
     return this.transporter;
   }
 
-  private static async send(params: { to: string; subject: string; html: string; text?: string }) {
+  private static async send(params: {
+    to: string;
+    subject: string;
+    html: string;
+    text?: string;
+    replyTo?: string;
+    category?: string; // for SendGrid/email analytics tagging — informational only
+  }) {
     const transporter = this.getTransporter();
     if (!transporter) return;
     const from = this.getFrom();
     await transporter.sendMail({
       from: `"${from.name}" <${from.email}>`,
       to: params.to,
+      replyTo: params.replyTo,
       subject: params.subject,
       html: params.html,
       text: params.text || this.stripHtml(params.html),

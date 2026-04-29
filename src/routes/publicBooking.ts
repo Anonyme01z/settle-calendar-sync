@@ -4,6 +4,7 @@ import { BusinessService } from '../services/businessService';
 import { ServiceService } from '../services/serviceService';
 import { CalendarService } from '../services/calendarService';
 import { EmailService } from '../services/emailService';
+import { UserService } from '../services/userService';
 import Joi from 'joi';
 import { format } from 'date-fns';
 
@@ -51,7 +52,6 @@ router.get('/business/:handle/calendar-status', async (req, res) => {
     if (!business) return res.status(404).json({ error: 'Business not found' });
     
     // Check if user has Google tokens without accessing calendar
-    const { UserService } = require('../services/userService');
     const tokens = await UserService.getGoogleTokens(business.userId);
     
     res.json({

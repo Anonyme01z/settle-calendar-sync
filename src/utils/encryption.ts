@@ -4,7 +4,11 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'fallback-key-change-this';
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+
+if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length < 16) {
+  throw new Error('FATAL: ENCRYPTION_KEY env var is missing or too short (min 16 chars). Set it before starting the server.');
+}
 
 export const encrypt = (text: string): string => {
   return CryptoJS.AES.encrypt(text, ENCRYPTION_KEY).toString();
